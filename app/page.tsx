@@ -45,16 +45,32 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
-  async function load() {
+  async function loadAction(action = 'dashboard') {
     setLoading(true); setErr('');
     try {
-      const j = await apiGet('all', { month });
+      const j = await apiGet(action, { month });
       if (j.ok === false) setErr(j.error || 'API 오류');
-      setData(j);
+      setData(prev => ({ ...prev, ...j }));
     } catch (e: any) { setErr(String(e?.message || e)); }
     finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, [month]);
+  async function loadDashboard() { return loadAction('dashboard'); }
+  async function loadFull() { return loadAction('all'); }
+  function actionForTab(t: string) {
+    if (t === '직원관리') return 'employees';
+    if (t === '휴무관리') return 'leave';
+    if (t === '근무인원') return 'staffing';
+    if (t === '보건증') return 'health';
+    if (t === '인센티브') return 'incentives';
+    if (t === '공지사항') return 'notices';
+    if (t === '운영통계' || t === '시스템' || t === '연결확인') return 'all';
+    return 'dashboard';
+  }
+  function goTab(t: string) {
+    setTab(t);
+    loadAction(actionForTab(t));
+  }
+  useEffect(() => { loadDashboard(); }, [month]);
   const employees: Row[] = data.employees || [];
   const leave: Row[] = data.leave || data.holidays || [];
   const health: Row[] = data.health || [];
@@ -72,26 +88,26 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V10 Final</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={load}>새로고침</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V10 Final</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
-    <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}</button>)}</div>
+    <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
     {!loading && !err && <>
-      {tab === '대시보드' && <Dashboard data={data} active={active} todayWork={todayWork} todayOff={todayOff} healthWarnings={healthWarnings} notices={notices} />}
-      {tab === '직원관리' && <Employees rows={employees} onSaved={load} />}
-      {tab === '휴무관리' && <Leave rows={leave} employees={employees} month={month} onSaved={load} />}
+      {tab === '대시보드' && <Dashboard data={data} active={active} todayWork={todayWork} todayOff={todayOff} healthWarnings={healthWarnings} notices={notices} goTab={goTab} />}
+      {tab === '직원관리' && <Employees rows={employees} onSaved={() => loadAction('employees')} />}
+      {tab === '휴무관리' && <Leave rows={leave} employees={employees} month={month} onSaved={() => loadAction('leave')} />}
       {tab === '근무인원' && <Table title="근무인원" rows={staffing} />}
-      {tab === '보건증' && <Health rows={health} employees={employees} onSaved={load} />}
-      {tab === '인센티브' && <Incentive rows={incentives} employees={employees} onSaved={load} />}
-      {tab === '공지사항' && <Notice rows={notices} onSaved={load} />}
+      {tab === '보건증' && <Health rows={health} employees={employees} onSaved={() => loadAction('health')} />}
+      {tab === '인센티브' && <Incentive rows={incentives} employees={employees} onSaved={() => loadAction('incentives')} />}
+      {tab === '공지사항' && <Notice rows={notices} onSaved={() => loadAction('notices')} />}
       {tab === '운영통계' && <Operations data={data} employees={employees} leave={leave} incentives={incentives} health={health} month={month} />}
-      {tab === '시스템' && <SystemTools data={data} month={month} onSaved={load} />}
+      {tab === '시스템' && <SystemTools data={data} month={month} onSaved={loadFull} />}
       {tab === '연결확인' && <Debug data={data} />}
     </>}
   </main>;
 }
 function Stat({ t, v }: { t: string, v: any }) { return <div className="card"><div className="muted">{t}</div><div className="num">{v}</div></div>; }
-function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices }: any) {
+function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices, goTab }: any) {
   const workNames = (todayWork || []).map((r: Row) => nameOf(r)).filter(Boolean);
   const offNames = (todayOff || []).map((r: Row) => nameOf(r) || val(r, ['이름', '직원명'])).filter(Boolean);
   return <>
@@ -104,7 +120,7 @@ function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices 
       <div className="card"><h2>👥 오늘 근무자</h2>{workNames.length ? <p>{workNames.join(', ')}</p> : <p className="muted">표시할 근무자가 없습니다.</p>}<p className="muted small">재직 직원 {active.length}명 기준</p></div>
       <div className="card"><h2>🏖 오늘 휴무자</h2>{offNames.length ? <p>{offNames.join(', ')}</p> : <p className="muted">오늘 휴무자가 없습니다.</p>}</div>
       <div className="card"><h2>🩺 보건증 경고</h2>{healthWarnings?.slice(0, 6).map((r: Row, i: number) => { const exp = val(r, ['만료일','보건증만료일','보건증 만료일','날짜']); const st = healthStatus(dday(exp)); return <p key={i}>• <b>{nameOf(r)}</b> <span className={`status ${st.cls}`}>{st.text}</span></p>; })}{!healthWarnings?.length && <p className="muted">만료 예정 없음</p>}</div>
-      <div className="card"><h2>빠른 실행</h2><div className="row"><button className="btn">➕ 직원 추가</button><button className="btn">📅 휴무 입력</button><button className="btn">📢 공지 작성</button><button className="btn secondary">📦 월마감</button></div><p className="muted small">API 버전: {data.version || '-'} / 시트: {data.spreadsheet || '-'}</p></div>
+      <div className="card"><h2>빠른 실행</h2><div className="row"><button className="btn" onClick={() => goTab('직원관리')}>➕ 직원 추가</button><button className="btn" onClick={() => goTab('휴무관리')}>📅 휴무 입력</button><button className="btn" onClick={() => goTab('공지사항')}>📢 공지 작성</button><button className="btn secondary" onClick={() => goTab('시스템')}>📦 월마감</button></div><p className="muted small">API 버전: {data.version || '-'} / 시트: {data.spreadsheet || '-'}</p></div>
     </div>
   </>;
 }
