@@ -119,7 +119,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V11.2 Performance</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V11.2.1 Stable</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -127,7 +127,7 @@ export default function Page() {
       {tab === '대시보드' && <Dashboard data={data} active={active} todayWork={todayWork} todayOff={todayOff} healthWarnings={healthWarnings} notices={notices} />}
       {tab === '직원관리' && <Employees rows={employees} onSaved={() => loadAction('employees')} />}
       {tab === '휴무관리' && <Leave rows={leave} employees={employees} month={month} onAdded={addLeaveLocal} onDeleted={removeLeaveLocal} />}
-      {tab === '근무인원' && <Table title="근무인원" rows={staffing} />}
+      {tab === '근무인원' && <Staffing rows={staffing} employees={employees} leave={leave} month={month} />}
       {tab === '보건증' && <Health rows={health} employees={employees} onSaved={() => loadAction('health')} />}
       {tab === '인센티브' && <Incentive rows={incentives} employees={employees} onSaved={() => loadAction('incentives')} />}
       {tab === '공지사항' && <Notice rows={notices} onSaved={() => loadAction('notices')} />}
@@ -371,6 +371,23 @@ function Incentive({ rows, employees, onSaved }: { rows: Row[], employees: Row[]
     <div className="card"><h2>직원별 인센티브 현황</h2><table><thead><tr><th>직원</th><th>현재누적</th><th>사용가능</th><th>잔여</th></tr></thead><tbody>{summary.map(s => <tr key={s.name}><td><b>{s.name}</b></td><td>{s.hours}시간</td><td>{Math.floor(s.hours / 12)}개</td><td>{s.hours % 12}시간</td></tr>)}</tbody></table><p className="muted small">표시는 12시간 = 휴무 1개 기준입니다.</p></div>
     <div className="card"><h2>수기 조정</h2><div className="row"><select value={name} onChange={e => setName(e.target.value)}><option value="">직원 선택</option>{activeNames.map(n => <option key={n}>{n}</option>)}</select><input className="input" type="number" placeholder="시간 예: 3 / -2" value={hours} onChange={e => setHours(e.target.value)} /><input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} /><button className="btn" onClick={adjust} disabled={saving}>{saving ? '저장중' : '조정 저장'}</button></div><p className="muted small">토/일/공휴일 +1, V -12, 반차+V -6은 휴무 저장 시 자동 기록됩니다.</p></div>
     <div className="card" style={{gridColumn:'1/-1'}}><h2>인센티브 로그</h2>{!logs.length && <p className="muted">로그가 없습니다.</p>}<table><thead><tr><th>날짜</th><th>직원</th><th>구분</th><th>시간</th><th>메모</th></tr></thead><tbody>{logs.map((r,i) => <tr key={i}><td>{dateOnly(val(r, ['날짜','일자','입력시간']))}</td><td>{nameOf(r)}</td><td>{val(r, ['구분','사유','내용'])}</td><td>{val(r, ['시간','인센티브변동'])}</td><td>{val(r, ['메모','비고','내용'])}</td></tr>)}</tbody></table></div>
+  </div>;
+}
+
+function Staffing({ rows, employees, leave, month }: { rows: Row[], employees: Row[], leave: Row[], month: string }) {
+  const today = localDateKey();
+  const activeEmployees = employees.filter(isActive).filter(r => nameOf(r));
+  const todayOff = leave.filter(r => dateOnly(val(r, ['날짜', '일자', '휴무일', '입력일'])) === today);
+  const todayOffNames = new Set(todayOff.map(r => nameOf(r) || val(r, ['이름', '직원명'])));
+  const todayWork = activeEmployees.filter(r => !todayOffNames.has(nameOf(r)));
+  const monthRows = rows.filter(r => {
+    const d = dateOnly(val(r, ['날짜', '일자', '근무일', '입력일']));
+    return !d || d.startsWith(month);
+  });
+  return <div className="grid2">
+    <div className="card"><h2>오늘 근무인원</h2><div className="num">{todayWork.length}</div><p>{todayWork.map(nameOf).filter(Boolean).join(', ') || '표시할 근무자가 없습니다.'}</p><p className="muted small">기준일: {today}</p></div>
+    <div className="card"><h2>오늘 휴무인원</h2><div className="num">{todayOff.length}</div><p>{todayOff.map(r => nameOf(r) || val(r, ['이름','직원명'])).filter(Boolean).join(', ') || '오늘 휴무자가 없습니다.'}</p></div>
+    <div className="card" style={{ gridColumn: '1/-1' }}><h2>근무인원 시트 데이터</h2>{monthRows.length ? <Table title="" rows={monthRows} /> : <p className="muted">근무인원 시트에 표시할 데이터가 없어 오늘 근무/휴무 기준으로 계산 표시했습니다.</p>}</div>
   </div>;
 }
 
