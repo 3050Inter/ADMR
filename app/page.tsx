@@ -56,6 +56,23 @@ export default function Page() {
   }
   async function loadDashboard() { return loadAction('dashboard'); }
   async function loadFull() { return loadAction('all'); }
+
+  function addLeaveLocal(items: Row[]) {
+    setData(prev => {
+      const nextLeave = [...(prev.leave || prev.holidays || []), ...items];
+      return { ...prev, leave: nextLeave, holidays: nextLeave };
+    });
+  }
+  function removeLeaveLocal(target: Row) {
+    setData(prev => {
+      const oldRows: Row[] = prev.leave || prev.holidays || [];
+      const nextLeave = oldRows.filter(r => {
+        if (target._row && r._row) return r._row !== target._row;
+        return !(dateOnly(val(r, ['날짜','일자','휴무일'])) === dateOnly(val(target, ['날짜','일자','휴무일'])) && nameOf(r) === nameOf(target));
+      });
+      return { ...prev, leave: nextLeave, holidays: nextLeave };
+    });
+  }
   function actionForTab(t: string) {
     if (t === '직원관리') return 'employees';
     if (t === '휴무관리') return 'leave';
@@ -88,14 +105,14 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V11 Final</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결 / V11 Final</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V11.1 Performance</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
     {!loading && !err && <>
-      {tab === '대시보드' && <Dashboard data={data} active={active} todayWork={todayWork} todayOff={todayOff} healthWarnings={healthWarnings} notices={notices} goTab={goTab} />}
+      {tab === '대시보드' && <Dashboard data={data} active={active} todayWork={todayWork} todayOff={todayOff} healthWarnings={healthWarnings} notices={notices} />}
       {tab === '직원관리' && <Employees rows={employees} onSaved={() => loadAction('employees')} />}
-      {tab === '휴무관리' && <Leave rows={leave} employees={employees} month={month} onSaved={() => loadAction('leave')} />}
+      {tab === '휴무관리' && <Leave rows={leave} employees={employees} month={month} onAdded={addLeaveLocal} onDeleted={removeLeaveLocal} />}
       {tab === '근무인원' && <Table title="근무인원" rows={staffing} />}
       {tab === '보건증' && <Health rows={health} employees={employees} onSaved={() => loadAction('health')} />}
       {tab === '인센티브' && <Incentive rows={incentives} employees={employees} onSaved={() => loadAction('incentives')} />}
@@ -107,7 +124,7 @@ export default function Page() {
   </main>;
 }
 function Stat({ t, v }: { t: string, v: any }) { return <div className="card"><div className="muted">{t}</div><div className="num">{v}</div></div>; }
-function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices, goTab }: any) {
+function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices }: any) {
   const workNames = (todayWork || []).map((r: Row) => nameOf(r)).filter(Boolean);
   const offNames = (todayOff || []).map((r: Row) => nameOf(r) || val(r, ['이름', '직원명'])).filter(Boolean);
   return <>
@@ -120,7 +137,7 @@ function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices,
       <div className="card"><h2>👥 오늘 근무자</h2>{workNames.length ? <p>{workNames.join(', ')}</p> : <p className="muted">표시할 근무자가 없습니다.</p>}<p className="muted small">재직 직원 {active.length}명 기준</p></div>
       <div className="card"><h2>🏖 오늘 휴무자</h2>{offNames.length ? <p>{offNames.join(', ')}</p> : <p className="muted">오늘 휴무자가 없습니다.</p>}</div>
       <div className="card"><h2>🩺 보건증 경고</h2>{healthWarnings?.slice(0, 6).map((r: Row, i: number) => { const exp = val(r, ['만료일','보건증만료일','보건증 만료일','날짜']); const st = healthStatus(dday(exp)); return <p key={i}>• <b>{nameOf(r)}</b> <span className={`status ${st.cls}`}>{st.text}</span></p>; })}{!healthWarnings?.length && <p className="muted">만료 예정 없음</p>}</div>
-      <div className="card"><h2>빠른 실행</h2><div className="row"><button className="btn" onClick={() => goTab('직원관리')}>➕ 직원 추가</button><button className="btn" onClick={() => goTab('휴무관리')}>📅 휴무 입력</button><button className="btn" onClick={() => goTab('공지사항')}>📢 공지 작성</button><button className="btn secondary" onClick={() => goTab('시스템')}>📦 월마감</button></div><p className="muted small">API 버전: {data.version || '-'} / 시트: {data.spreadsheet || '-'}</p></div>
+      <div className="card"><h2>시스템 정보</h2><p className="muted small">API 버전: {data.version || '-'} / 시트: {data.spreadsheet || '-'}</p><p className="muted small">빠른실행은 V11.1에서 제거했습니다.</p></div>
     </div>
   </>;
 }
@@ -161,7 +178,7 @@ function leaveCountOf(type: string) {
   if (type === '휴무') return 1;
   return 0;
 }
-function Leave({ rows, employees, month, onSaved }: { rows: Row[], employees: Row[], month: string, onSaved: () => void }) {
+function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], employees: Row[], month: string, onAdded: (items: Row[]) => void, onDeleted: (item: Row) => void }) {
   const activeEmployees = employees.filter(isActive).filter(r => nameOf(r));
   const [date, setDate] = useState(`${month}-01`);
   const [type, setType] = useState('휴무');
@@ -202,12 +219,14 @@ function Leave({ rows, employees, month, onSaved }: { rows: Row[], employees: Ro
     if (!date || selected.length === 0) return alert('날짜와 직원을 선택하세요.');
     setSaving(true);
     try {
+      const added: Row[] = [];
       for (const name of selected) {
         const j = await apiPost({ action: 'saveLeave', name, date, type, memo, inputMonth: month });
         if (j.ok === false) throw new Error(j.error || `${name} 저장 실패`);
+        added.push({ _sheet: '휴무입력', 입력월: month, 날짜: date, 이름: name, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: type === 'V' ? -12 : (type === '반차+V' ? -6 : 0), 메모: memo, 입력자: '홈페이지' });
       }
       setMemo('');
-      onSaved();
+      if (added.length) onAdded(added);
       alert(`${selected.length}명 휴무 저장 완료`);
     } catch (e: any) {
       alert(String(e?.message || e));
@@ -226,7 +245,7 @@ function Leave({ rows, employees, month, onSaved }: { rows: Row[], employees: Ro
       type: leaveTypeOf(r),
     });
     if (j.ok === false) return alert(j.error || '삭제 실패');
-    onSaved();
+    onDeleted(r);
   }
   return <>
     <div className="card">
@@ -298,6 +317,7 @@ function Incentive({ rows, employees, onSaved }: { rows: Row[], employees: Row[]
   const [memo, setMemo] = useState('');
   const [saving, setSaving] = useState(false);
   const activeNames = employees.filter(isActive).map(nameOf).filter(Boolean);
+  const [optimisticLogs, setOptimisticLogs] = useState<Row[]>([]);
   const summaryMap = new Map<string, number>();
 
   employees.forEach(e => {
@@ -310,10 +330,15 @@ function Incentive({ rows, employees, onSaved }: { rows: Row[], employees: Row[]
     const current = Number(val(r, ['현재누적','누적','인센티브']) || '');
     if (!isNaN(current) && current !== 0) summaryMap.set(n, current);
   });
+  optimisticLogs.forEach(r => {
+    const n = nameOf(r);
+    if (!n) return;
+    summaryMap.set(n, (summaryMap.get(n) || 0) + (Number(val(r, ['시간','인센티브변동']) || 0) || 0));
+  });
 
   const summary = activeNames.map(n => ({ name: n, hours: summaryMap.get(n) || 0 }))
     .sort((a,b) => b.hours - a.hours);
-  const logs = rows.filter(r => val(r, ['날짜','일자']) || val(r, ['구분','사유']) || val(r, ['시간'])).slice(0, 120);
+  const logs = [...optimisticLogs, ...rows.filter(r => val(r, ['날짜','일자']) || val(r, ['구분','사유']) || val(r, ['시간']))].slice(0, 120);
 
   async function adjust() {
     if (!name) return alert('직원을 선택하세요.');
@@ -323,7 +348,9 @@ function Incentive({ rows, employees, onSaved }: { rows: Row[], employees: Row[]
     const j = await apiPost({ action: 'manualAdjust', name, hours: h, memo });
     setSaving(false);
     if (j.ok === false) return alert(j.error || '저장 실패');
-    setHours(''); setMemo(''); onSaved();
+    const today = new Date().toISOString().slice(0, 10);
+    setOptimisticLogs(prev => [{ 날짜: today, 이름: name, 구분: h > 0 ? '수기적립' : '수기차감', 시간: h, 메모: memo || '홈페이지 수기조정' }, ...prev]);
+    setHours(''); setMemo('');
   }
 
   return <div className="grid2">
