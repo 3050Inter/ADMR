@@ -1,4 +1,4 @@
-// 안다미로 직원관리 홈페이지 API - MASTER_DB V6/V13
+// 안다미로 직원관리 홈페이지 API - V10 Final
 // 휴무 입력 저장 + 휴무갯수/인센티브변동 기록 + 토/일/공휴일 근무 인센티브 자동 적립
 const MASTER_DB_ID = '1O-v-26uvnmj9B2n1pB98DMl1IV9mB3s-y9w0elcIMqU';
 
