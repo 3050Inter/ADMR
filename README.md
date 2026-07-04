@@ -1,65 +1,27 @@
-# 안다미로 직원관리 V10 Final
+# 안다미로 직원관리 V11 Final
 
 Google Sheets MASTER_DB + Google Apps Script + Next.js + Vercel 기반 직원관리 홈페이지입니다.
 
-## 포함 기능
+## V11 Final 반영 내용
 
-- 직원관리 기본 조회/등록
-- 휴무관리 월간표
-- 휴 / V / 반차+V 입력 및 삭제
-- 여러 직원 동시 휴무 입력
-- 중복 휴무 입력 방지
-- 토/일/공휴일 근무 인센티브 +1시간 자동 적립
-- V 사용 -12시간, 반차+V -6시간 자동 기록
-- 인센티브 현황 및 수기 조정
-- 보건증 등록/갱신 및 D-Day 표시
-- 공지사항 작성/삭제
-- Dashboard 현황(오늘 근무/오늘 휴무/보건증 경고/공지 중심)
-- 운영통계 탭
-- 최근 활동 로그
-- 월마감 로그
-- MASTER_DB 백업 버튼
-- 연결확인 탭
+- 화면별 API 호출 분리: dashboard / employees / leave / health / incentives / notices / staffing / all
+- 첫 화면 전체 `all` 호출 제거
+- 빠른 실행 버튼 정상 연결
+- 저장 후 전체 새로고침 방지: 해당 탭 데이터만 갱신
+- 인센티브 수기조정 반영 개선
+- Apps Script `openById()` 반복 호출 최소화
+- 기존 V10 MASTER_DB 시트 구조 유지
 
 ## 배포 순서
 
 1. 이 ZIP 압축 해제
-2. GitHub 저장소에 전체 업로드
-3. Google Apps Script에 `apps-script.js` 전체 붙여넣기
-4. Apps Script 저장 후 새 배포: 웹 앱
-5. 실행 사용자: 나
-6. 액세스 권한: Google 계정이 있는 모든 사용자
-7. 웹 앱 URL(`/exec`) 복사
-8. Vercel 환경변수 설정
+2. GitHub ADMR 저장소에 기존 파일 전체 삭제 후 이 파일들 전체 업로드
+3. Commit changes
+4. Vercel 자동 배포 확인
+5. `apps-script-v11-final.gs` 내용을 Google Apps Script `Code.gs`에 전체 붙여넣기
+6. 저장 → 배포 관리 → 새 버전 배포
+7. 기존 Vercel 환경변수 `NEXT_PUBLIC_API_URL`은 그대로 사용
 
-```env
-NEXT_PUBLIC_API_URL=https://script.google.com/macros/s/배포ID/exec
-```
+## 중요
 
-9. Vercel Redeploy
-10. 홈페이지에서 연결확인
-
-## 주의
-
-- `.env.local`은 포함하지 않습니다.
-- `package-lock.json`은 포함하지 않습니다.
-- Vercel에서 `npm install`이 새로 실행되도록 구성했습니다.
-- 배포 전 Apps Script의 `MASTER_DB_ID`가 실제 시트 ID인지 확인하세요.
-
-## 핵심 시트명
-
-- 직원관리
-- 휴무입력
-- 공휴일입력
-- 수기조정
-- 인센티브로그
-- 인센티브요약
-- 근무인원
-- 보건증현황
-- 공지사항
-- 홈페이지로그
-- 월마감로그
-
-## 버전
-
-V10 Final UI Polished Candidate
+`.git` 폴더를 직접 건드리지 않아도 됩니다. GitHub 웹 업로드 방식으로 진행하면 충돌을 피할 수 있습니다.
