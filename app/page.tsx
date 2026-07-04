@@ -18,6 +18,17 @@ function dateOnly(v: any) {
   if (m) return `${m[1]}-${String(Number(m[2])).padStart(2, '0')}-${String(Number(m[3])).padStart(2, '0')}`;
   return s.slice(0, 10);
 }
+function localDateKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function localMonthKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
 function isActive(r: Row) {
   const s = val(r, ['상태', '재직상태', '사용여부']);
   return !s.includes('퇴사') && !s.includes('제외') && !s.includes('비활성');
@@ -44,13 +55,15 @@ export default function Page() {
   const [data, setData] = useState<Row>({});
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(localMonthKey());
+  const [loaded, setLoaded] = useState<Record<string, boolean>>({});
   async function loadAction(action = 'dashboard') {
     setLoading(true); setErr('');
     try {
       const j = await apiGet(action, { month });
       if (j.ok === false) setErr(j.error || 'API 오류');
       setData(prev => ({ ...prev, ...j }));
+      setLoaded(prev => ({ ...prev, [action]: true }));
     } catch (e: any) { setErr(String(e?.message || e)); }
     finally { setLoading(false); }
   }
@@ -84,8 +97,9 @@ export default function Page() {
     return 'dashboard';
   }
   function goTab(t: string) {
+    const action = actionForTab(t);
     setTab(t);
-    loadAction(actionForTab(t));
+    if (!loaded[action]) loadAction(action);
   }
   useEffect(() => { loadDashboard(); }, [month]);
   const employees: Row[] = data.employees || [];
@@ -95,7 +109,7 @@ export default function Page() {
   const staffing: Row[] = data.staffing || [];
   const notices: Row[] = data.notices || [];
   const active = employees.filter(isActive);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   const todayOff = leave.filter(r => dateOnly(val(r, ['날짜', '일자', '휴무일', '입력일'])) === today);
   const todayOffNames = new Set(todayOff.map(r => nameOf(r) || val(r, ['이름', '직원명'])));
   const todayWork = active.filter(r => !todayOffNames.has(nameOf(r)));
@@ -105,7 +119,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V11.1 Performance</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V11.2 Performance</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -290,7 +304,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], em
 function dday(dateValue: any) {
   const d = dateOnly(dateValue);
   if (!d) return null;
-  const today0 = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00');
+  const today0 = new Date(localDateKey() + 'T00:00:00');
   const target = new Date(d + 'T00:00:00');
   const diff = Math.ceil((target.getTime() - today0.getTime()) / 86400000);
   return diff;
@@ -348,7 +362,7 @@ function Incentive({ rows, employees, onSaved }: { rows: Row[], employees: Row[]
     const j = await apiPost({ action: 'manualAdjust', name, hours: h, memo });
     setSaving(false);
     if (j.ok === false) return alert(j.error || '저장 실패');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateKey();
     setOptimisticLogs(prev => [{ 날짜: today, 이름: name, 구분: h > 0 ? '수기적립' : '수기차감', 시간: h, 메모: memo || '홈페이지 수기조정' }, ...prev]);
     setHours(''); setMemo('');
   }
