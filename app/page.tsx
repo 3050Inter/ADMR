@@ -368,22 +368,22 @@ function leaveTypeOf(r?: Row) {
 function leaveBadgeClass(type: string) {
   if (type === 'V') return 'leave-badge v';
   if (type === '오전반차(V)' || type === '오후반차(V)') return 'leave-badge v';
-  if (type === '반차+V' || type === '오전반차' || type === '오후반차' || type === '오전반차(V)' || type === '오후반차(V)') return 'leave-badge half';
-  if (type === '휴무') return 'leave-badge off';
+  if (type === '반차+V' || type === '1/2+V' || type === '오전반차' || type === '오후반차' || type === '오전반차(V)' || type === '오후반차(V)') return 'leave-badge half';
+  if (type === '휴무' || type === '휴') return 'leave-badge off';
   return 'leave-badge work';
 }
 function leaveCountOf(type: string) {
-  if (type === '반차+V' || type === '오전반차' || type === '오후반차' || type === '오전반차(V)' || type === '오후반차(V)') return 0.5;
+  if (type === '반차+V' || type === '1/2+V' || type === '오전반차' || type === '오후반차' || type === '오전반차(V)' || type === '오후반차(V)') return 0.5;
   if (type === 'V') return 1;
-  if (type === '휴무') return 1;
+  if (type === '휴무' || type === '휴') return 1;
   return 0;
 }
 function leaveDeltaOf(type: string) {
   if (type === 'V') return -12;
-  if (type === '반차+V' || type === '오전반차(V)' || type === '오후반차(V)') return -6;
+  if (type === '반차+V' || type === '1/2+V' || type === '오전반차(V)' || type === '오후반차(V)') return -6;
   return 0;
 }
-const leaveTypeOptions = ['휴무', '오전반차', '오후반차', 'V', '오전반차(V)', '오후반차(V)'];
+const leaveTypeOptions = ['휴무', '오전반차', '오후반차', 'V', '반차+V', '1/2+V', '오전반차(V)', '오후반차(V)'];
 function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin }: { rows: Row[], employees: Row[], month: string, onAdded: (items: Row[]) => void, onDeleted: (item: Row) => void, onUpdated: (before: Row, after: Row) => void, isAdmin: boolean }) {
   const activeEmployees = employees.filter(isActive).filter(r => nameOf(r));
   const [date, setDate] = useState(`${month}-01`);
@@ -401,7 +401,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
     const d = dateOnly(val(r, ['날짜', '일자', '휴무일']));
     const n = nameOf(r);
     const t = leaveTypeOf(r);
-    if (d && n && (t === '휴무' || t === 'V' || t === '반차+V' || t === '오전반차' || t === '오후반차' || t === '오전반차(V)' || t === '오후반차(V)')) byKey.set(`${d}|${n}`, r);
+    if (d && n && (t === '휴무' || t === '휴' || t === 'V' || t === '반차+V' || t === '1/2+V' || t === '오전반차' || t === '오후반차' || t === '오전반차(V)' || t === '오후반차(V)')) byKey.set(`${d}|${n}`, r);
   });
   const summary = activeEmployees.map(emp => {
     const n = nameOf(emp);
@@ -425,73 +425,13 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
   }
   async function saveBulk() {
     if (!date || selected.length === 0) return alert('날짜와 직원을 선택하세요.');
-
-    const existingRows = selected
-      .map(n => byKey.get(`${date}|${n}`))
-      .filter(Boolean) as Row[];
-    const existingNames = new Set(existingRows.map(r => nameOf(r)));
-    const newNames = selected.filter(n => !existingNames.has(n));
-
-    if (existingRows.length) {
-      const preview = existingRows
-        .slice(0, 5)
-        .map(r => `${nameOf(r)}: ${leaveTypeOf(r) || '휴무'} → ${type}`)
-        .join('
-');
-      const more = existingRows.length > 5 ? `
-외 ${existingRows.length - 5}명` : '';
-      const ok = confirm(`이미 등록된 휴무가 있습니다.
-
-${preview}${more}
-
-기존 휴무를 선택한 종류로 수정할까요?`);
-      if (!ok) return;
-    }
-
     setSaving(true);
     try {
-      let changed = 0;
-      for (const r of existingRows) {
-        const current = leaveTypeOf(r) || '휴무';
-        if (current === type) continue;
-        const j = await apiPost({
-          action: 'updateLeave',
-          row: r._row,
-          sheetName: '휴무입력',
-          date: dateOnly(val(r, ['날짜', '일자', '휴무일'])),
-          name: nameOf(r),
-          oldType: current,
-          type,
-          memo: memo || val(r, ['메모', '비고']),
-        });
-        if (j.ok === false) throw new Error(j.error || `${nameOf(r)} 수정 실패`);
-        onUpdated(r, { ...r, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: leaveDeltaOf(type), 메모: memo || val(r, ['메모', '비고']) });
-        changed += 1;
-      }
-
-      let saved = 0;
-      if (newNames.length) {
-        const j = await apiPost({ action: 'saveLeaveBulk', names: newNames, date, type, memo, inputMonth: month });
-        if (j.ok === false) throw new Error(j.error || '휴무 저장 실패');
-        const savedNames: string[] = Array.isArray(j.savedNames) && j.savedNames.length ? j.savedNames : newNames;
-        const added: Row[] = savedNames.map((name: string) => ({
-          _sheet: '휴무입력',
-          입력월: month,
-          날짜: date,
-          이름: name,
-          구분: type,
-          휴무갯수: leaveCountOf(type),
-          인센티브변동: leaveDeltaOf(type),
-          메모: memo,
-          입력자: '홈페이지'
-        }));
-        if (added.length) onAdded(added);
-        saved = savedNames.length;
-      }
-
+      const j = await apiPost({ action: 'saveLeaveBulk', names: selected, date, type, memo, inputMonth: month });
+      if (j.ok === false) throw new Error(j.error || '휴무 저장 실패');
       setMemo('');
-      if (!changed && !saved) alert('이미 같은 휴무로 등록되어 있습니다.');
-      else alert(`휴무 처리 완료: 신규 ${saved}명 / 수정 ${changed}명`);
+      alert(j.message || `휴무 저장 완료: ${selected.length}명`);
+      window.location.reload();
     } catch (e: any) {
       alert(String(e?.message || e));
     } finally {
@@ -677,12 +617,16 @@ function Incentive({ rows, employees, onSaved, isAdmin }: { rows: Row[], employe
     const h = Number(hours);
     if (!h) return alert('조정 시간을 입력하세요. 예: 3 또는 -2');
     setSaving(true);
-    const j = await apiPost({ action: 'manualAdjust', name, hours: h, memo });
-    setSaving(false);
-    if (j.ok === false) return alert(j.error || '저장 실패');
-    const today = localDateKey();
-    setOptimisticLogs(prev => [{ 날짜: today, 이름: name, 구분: h > 0 ? '수기적립' : '수기차감', 시간: h, 메모: memo || '홈페이지 수기조정' }, ...prev]);
-    setHours(''); setMemo('');
+    try {
+      const j = await apiPost({ action: 'manualAdjust', name, hours: h, memo });
+      if (j.ok === false) return alert(j.error || '저장 실패');
+      setHours('');
+      setMemo('');
+      alert(j.message || '인센티브 조정 저장 완료');
+      window.location.reload();
+    } finally {
+      setSaving(false);
+    }
   }
 
   return <div className="grid2">
