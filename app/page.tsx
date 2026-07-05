@@ -444,8 +444,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
       const preview = existingRows
         .slice(0, 5)
         .map(r => `${nameOf(r)}: ${leaveTypeOf(r) || '휴무'} → ${type}`)
-        .join('
-');
+        .join('\n');
       const more = existingRows.length > 5 ? `
 외 ${existingRows.length - 5}명` : '';
       const ok = confirm(`이미 등록된 휴무가 있습니다.
