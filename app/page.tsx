@@ -66,6 +66,9 @@ export default function Page() {
       setIsAdmin(until > Date.now());
     } catch (e) {}
   }, []);
+  useEffect(() => {
+    document.title = '안다미로 스시';
+  }, []);
   function unlockAdmin() {
     const pw = window.prompt('관리자 비밀번호를 입력하세요.');
     if (pw !== ADMIN_PASSWORD) return alert('비밀번호가 맞지 않습니다.');
@@ -151,7 +154,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 v1.0.7 Save Fix</h1><div className="muted">v1.0.7 Save Fix / 저장 유지 · 휴무 표기 보정</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.0.8 Speed Fix</h1><div className="muted">v1.0.8 Speed Fix / 빠른 휴무입력 · 한국시간 고정</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -399,6 +402,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
   const [memo, setMemo] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [savingCell, setSavingCell] = useState('');
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const days = useMemo(() => daysInMonth(month), [month]);
@@ -430,6 +434,39 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
     setSelected([name]);
     const existing = byKey.get(`${d}|${name}`);
     if (existing) setType(leaveTypeOf(existing) || '휴무');
+  }
+  async function quickCellSave(name: string, d: string) {
+    clickCell(name, d);
+    if (!isAdmin) return;
+    if (saving || savingCell) return;
+    const key = `${d}|${name}`;
+    const existing = byKey.get(key);
+    const current = existing ? (leaveTypeOf(existing) || '휴무') : '';
+    setSavingCell(key);
+    try {
+      if (!existing) {
+        const j = await apiPost({ action: 'saveLeave', name, date: d, type, memo, inputMonth: month });
+        if (j.ok === false) throw new Error(j.error || '휴무 저장 실패');
+        onAdded([{ _sheet: '휴무입력', 입력월: month, 날짜: d, 이름: name, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: leaveDeltaOf(type), 메모: memo, 입력자: '홈페이지' }]);
+        return;
+      }
+      if (current === type) {
+        const ok = confirm(`${name} / ${d} / ${current}
+이미 같은 휴무가 등록되어 있습니다. 삭제할까요?`);
+        if (!ok) return;
+        const j = await apiPost({ action: 'deleteLeave', row: existing._row, sheetName: '휴무입력', date: d, name, type: current });
+        if (j.ok === false) throw new Error(j.error || '휴무 삭제 실패');
+        onDeleted(existing);
+        return;
+      }
+      const j = await apiPost({ action: 'updateLeave', row: existing._row, sheetName: '휴무입력', date: d, name, oldType: current, type, memo: memo || val(existing, ['메모', '비고']) });
+      if (j.ok === false) throw new Error(j.error || '휴무 수정 실패');
+      onUpdated(existing, { ...existing, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: leaveDeltaOf(type), 메모: memo || val(existing, ['메모', '비고']) });
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    } finally {
+      setSavingCell('');
+    }
   }
   async function saveBulk() {
     if (!date || selected.length === 0) return alert('날짜와 직원을 선택하세요.');
@@ -500,7 +537,6 @@ ${preview}${more}
       if (!changed && !saved) alert('이미 같은 휴무로 등록되어 있습니다.');
       else {
         alert(`휴무 처리 완료: 신규 ${saved}명 / 수정 ${changed}명`);
-        window.location.reload();
       }
     } catch (e: any) {
       alert(String(e?.message || e));
@@ -520,7 +556,6 @@ ${preview}${more}
     });
     if (j.ok === false) return alert(j.error || '삭제 실패');
     onDeleted(r);
-    window.location.reload();
   }
   async function editOne(r: Row) {
     const current = leaveTypeOf(r) || '휴무';
@@ -542,7 +577,6 @@ ${preview}${more}
     if (j.ok === false) return alert(j.error || '수정 실패');
     onUpdated(r, { ...r, 구분: nextType, 휴무갯수: leaveCountOf(nextType), 인센티브변동: leaveDeltaOf(nextType) });
     alert(j.message || '휴무 수정 완료');
-    window.location.reload();
   }
   return <>
     <div className="card">
@@ -559,7 +593,7 @@ ${preview}${more}
           return <label key={i} className={selected.includes(n) ? 'check active' : 'check'}><input type="checkbox" checked={selected.includes(n)} onChange={() => toggleName(n)} /> {n}</label>;
         })}
       </div>}
-      <div className="legend"><span className="leave-badge work">근무</span><span className="leave-badge off">휴</span><span className="leave-badge v">V</span><span className="leave-badge half">오전반차</span><span className="leave-badge half">오후반차</span><span className="leave-badge v">오전반차(V)</span><span className="leave-badge v">오후반차(V)</span><span className="muted small">칸 클릭 = 해당 직원/날짜 선택</span></div>
+      <div className="legend"><span className="leave-badge work">근무</span><span className="leave-badge off">휴</span><span className="leave-badge v">V</span><span className="leave-badge half">오전반차</span><span className="leave-badge half">오후반차</span><span className="leave-badge v">오전반차(V)</span><span className="leave-badge v">오후반차(V)</span><span className="muted small">관리자 모드: 칸 클릭 = 선택한 휴무 즉시 저장 / 같은 칸 다시 클릭 = 삭제</span></div>
     </div>
 
     {viewMode === 'table' && <div className="card calendar-wrap">
@@ -571,7 +605,9 @@ ${preview}${more}
             return <tr key={i}><th className="sticky-name emp-name">{n}</th>{days.map(d => {
               const r = byKey.get(`${d}|${n}`);
               const t = leaveTypeOf(r);
-              return <td key={d} onClick={() => clickCell(n, d)} className={r ? 'calendar-cell has-leave' : 'calendar-cell'}><span className={leaveBadgeClass(t)}>{t || '○'}</span></td>;
+              const cellKey = `${d}|${n}`;
+              const busy = savingCell === cellKey;
+              return <td key={d} onClick={() => quickCellSave(n, d)} title={isAdmin ? `${n} / ${d} / 선택: ${type}` : `${n} / ${d}`} className={r ? 'calendar-cell has-leave' : 'calendar-cell'} style={{ cursor: isAdmin ? 'pointer' : 'default', opacity: busy ? 0.45 : 1 }}><span className={leaveBadgeClass(t)}>{busy ? '저장' : (t || '○')}</span></td>;
             })}</tr>;
           })}
         </tbody>
