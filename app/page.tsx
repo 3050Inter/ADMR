@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 
 type Row = Record<string, any>;
 const tabs = ['대시보드', '직원관리', '휴무관리', '근무인원', '보건증', '인센티브', '공지사항', '운영통계', '시스템', '연결확인'];
+const ADMIN_PASSWORD = '8654';
+const ADMIN_STORAGE_KEY = 'andamiro_admin_until';
 
 function val(r: Row, keys: string[]) {
   for (const k of keys) {
@@ -57,6 +59,25 @@ export default function Page() {
   const [err, setErr] = useState('');
   const [month, setMonth] = useState(localMonthKey());
   const [loaded, setLoaded] = useState<Record<string, boolean>>({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    try {
+      const until = Number(localStorage.getItem(ADMIN_STORAGE_KEY) || '0');
+      setIsAdmin(until > Date.now());
+    } catch (e) {}
+  }, []);
+  function unlockAdmin() {
+    const pw = window.prompt('관리자 비밀번호를 입력하세요.');
+    if (pw !== ADMIN_PASSWORD) return alert('비밀번호가 맞지 않습니다.');
+    const until = Date.now() + 1000 * 60 * 60 * 24 * 30;
+    localStorage.setItem(ADMIN_STORAGE_KEY, String(until));
+    setIsAdmin(true);
+    alert('관리자 모드가 활성화되었습니다.');
+  }
+  function lockAdmin() {
+    localStorage.removeItem(ADMIN_STORAGE_KEY);
+    setIsAdmin(false);
+  }
   async function loadAction(action = 'dashboard') {
     setLoading(true); setErr('');
     try {
@@ -119,22 +140,97 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 V11.2.1 Stable</h1><div className="muted">점장용 Dashboard / MASTER_DB 실데이터 연결</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 v1.0.3 Final Stable</h1><div className="muted">v1.0.3 Final Stable / 모바일 최적화 · 관리자 잠금 · 휴무관리 안정화</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
     {!loading && !err && <>
       {tab === '대시보드' && <Dashboard data={data} active={active} todayWork={todayWork} todayOff={todayOff} healthWarnings={healthWarnings} notices={notices} />}
-      {tab === '직원관리' && <Employees rows={employees} onSaved={() => loadAction('employees')} />}
-      {tab === '휴무관리' && <Leave rows={leave} employees={employees} month={month} onAdded={addLeaveLocal} onDeleted={removeLeaveLocal} />}
+      {tab === '직원관리' && <Employees rows={employees} leave={leave} health={health} incentives={incentives} month={month} onSaved={() => loadAction('employees')} isAdmin={isAdmin} />}
+      {tab === '휴무관리' && <Leave rows={leave} employees={employees} month={month} onAdded={addLeaveLocal} onDeleted={removeLeaveLocal} isAdmin={isAdmin} />}
       {tab === '근무인원' && <Staffing rows={staffing} employees={employees} leave={leave} month={month} />}
-      {tab === '보건증' && <Health rows={health} employees={employees} onSaved={() => loadAction('health')} />}
-      {tab === '인센티브' && <Incentive rows={incentives} employees={employees} onSaved={() => loadAction('incentives')} />}
-      {tab === '공지사항' && <Notice rows={notices} onSaved={() => loadAction('notices')} />}
+      {tab === '보건증' && <Health rows={health} employees={employees} onSaved={() => loadAction('health')} isAdmin={isAdmin} />}
+      {tab === '인센티브' && <Incentive rows={incentives} employees={employees} onSaved={() => loadAction('incentives')} isAdmin={isAdmin} />}
+      {tab === '공지사항' && <Notice rows={notices} onSaved={() => loadAction('notices')} isAdmin={isAdmin} />}
       {tab === '운영통계' && <Operations data={data} employees={employees} leave={leave} incentives={incentives} health={health} month={month} />}
-      {tab === '시스템' && <SystemTools data={data} month={month} onSaved={loadFull} />}
+      {tab === '시스템' && <SystemTools data={data} month={month} onSaved={loadFull} isAdmin={isAdmin} />}
       {tab === '연결확인' && <Debug data={data} />}
     </>}
+    <div className="mobile-bottom-nav">
+      {[
+        ['대시보드', '🏠', '홈'],
+        ['직원관리', '👥', '직원'],
+        ['휴무관리', '🏖', '휴무'],
+        ['공지사항', '📢', '공지'],
+        ['시스템', '⚙️', '더보기'],
+      ].map(([target, icon, label]) => (
+        <button key={target} className={tab === target ? 'active' : ''} onClick={() => goTab(target)}>
+          <span>{icon}</span><em>{label}</em>
+        </button>
+      ))}
+    </div>
+    <style jsx global>{`
+      .mobile-bottom-nav { display: none; }
+      @media (max-width: 768px) {
+        body { padding-bottom: 84px; }
+        main { padding: 12px 10px 92px !important; }
+        .top { flex-direction: column; align-items: stretch !important; gap: 10px; }
+        .top .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .top .row .input { grid-column: 1 / -1; width: 100%; }
+        h1 { font-size: 22px !important; line-height: 1.25; }
+        h2 { font-size: 18px; }
+        .nav { display: none !important; }
+        .mobile-bottom-nav {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 9999;
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 0;
+          padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+          background: rgba(255,255,255,0.96);
+          border-top: 1px solid rgba(0,0,0,0.12);
+          box-shadow: 0 -8px 24px rgba(0,0,0,0.08);
+          backdrop-filter: blur(10px);
+        }
+        .mobile-bottom-nav button {
+          border: 0;
+          background: transparent;
+          border-radius: 14px;
+          min-height: 54px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+          font-size: 18px;
+          color: #6b7280;
+        }
+        .mobile-bottom-nav button em { font-style: normal; font-size: 11px; font-weight: 700; }
+        .mobile-bottom-nav button.active { background: #111827; color: white; }
+        .cards, .grid2 { grid-template-columns: 1fr !important; gap: 10px !important; }
+        .dashboard-main-cards { grid-template-columns: repeat(3, 1fr) !important; }
+        .dashboard-main-cards .card { padding: 12px 8px !important; text-align: center; }
+        .dashboard-main-cards .num { font-size: 24px !important; }
+        .card { border-radius: 16px !important; padding: 14px !important; }
+        .row, .leave-controls { gap: 8px !important; }
+        .row { flex-wrap: wrap; }
+        .btn, button, select, .input { min-height: 44px; font-size: 15px; }
+        .input, select { width: 100%; }
+        table { font-size: 13px; }
+        th, td { padding: 8px 6px !important; }
+        .calendar-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .calendar-table th, .calendar-table td { min-width: 42px; height: 42px; }
+        .sticky-name { min-width: 82px !important; }
+        .employee-checks { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .check { min-height: 42px; display: flex; align-items: center; }
+        .leave-list-row, .health-row, .notice-row, .timeline-row { gap: 8px; }
+        .notice-row { flex-direction: column; align-items: stretch !important; }
+        .modal, .sheet, .popup { max-width: calc(100vw - 24px) !important; }
+      }
+    `}</style>
   </main>;
 }
 function Stat({ t, v }: { t: string, v: any }) { return <div className="card"><div className="muted">{t}</div><div className="num">{v}</div></div>; }
@@ -151,15 +247,82 @@ function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices 
       <div className="card"><h2>👥 오늘 근무자</h2>{workNames.length ? <p>{workNames.join(', ')}</p> : <p className="muted">표시할 근무자가 없습니다.</p>}<p className="muted small">재직 직원 {active.length}명 기준</p></div>
       <div className="card"><h2>🏖 오늘 휴무자</h2>{offNames.length ? <p>{offNames.join(', ')}</p> : <p className="muted">오늘 휴무자가 없습니다.</p>}</div>
       <div className="card"><h2>🩺 보건증 경고</h2>{healthWarnings?.slice(0, 6).map((r: Row, i: number) => { const exp = val(r, ['만료일','보건증만료일','보건증 만료일','날짜']); const st = healthStatus(dday(exp)); return <p key={i}>• <b>{nameOf(r)}</b> <span className={`status ${st.cls}`}>{st.text}</span></p>; })}{!healthWarnings?.length && <p className="muted">만료 예정 없음</p>}</div>
-      <div className="card"><h2>시스템 정보</h2><p className="muted small">API 버전: {data.version || '-'} / 시트: {data.spreadsheet || '-'}</p><p className="muted small">빠른실행은 V11.1에서 제거했습니다.</p></div>
+      <div className="card"><h2>시스템 정보</h2><p className="muted small">API 버전: {data.version || '-'} / 시트: {data.spreadsheet || '-'}</p><p className="muted small">현재 상태: {data.version || '-'} / 수정 권한은 관리자 모드에서만 가능합니다.</p></div>
     </div>
   </>;
 }
-function Employees({ rows, onSaved }: { rows: Row[], onSaved: () => void }) {
-  const [q, setQ] = useState(''); const [name, setName] = useState(''); const [position, setPosition] = useState(''); const [dept, setDept] = useState(''); const [status, setStatus] = useState('사용가능'); const [saving, setSaving] = useState(false);
-  const filtered = rows.filter(r => nameOf(r).includes(q));
+
+function employeeLeaveStats(name: string, leave: Row[], month: string) {
+  const mine = leave.filter(r => nameOf(r) === name && dateOnly(val(r, ['날짜','일자','휴무일'])).startsWith(month));
+  const count = (type: string) => mine.filter(r => leaveTypeOf(r) === type).length;
+  const off = count('휴무');
+  const am = count('오전반차');
+  const pm = count('오후반차');
+  const v = count('V');
+  const amv = count('오전반차(V)');
+  const pmv = count('오후반차(V)');
+  const total = off + v + (am + pm + amv + pmv) * 0.5;
+  return { off, am, pm, v, amv, pmv, total };
+}
+function employeeIncentiveHours(name: string, employee: Row, incentives: Row[]) {
+  let hours = Number(val(employee, ['현재누적','누적','인센티브']) || 0) || 0;
+  incentives.forEach(r => {
+    if (nameOf(r) !== name) return;
+    const current = Number(val(r, ['현재누적','누적','인센티브']) || '');
+    if (!isNaN(current) && current !== 0) hours = current;
+  });
+  return hours;
+}
+function employeeHealthExpire(name: string, health: Row[]) {
+  const h = health.find(r => nameOf(r) === name || val(r, ['이름','직원명']) === name);
+  return h ? dateOnly(val(h, ['만료일','보건증만료일','보건증 만료일','날짜'])) : '';
+}
+function EmployeeDetailModal({ employee, leave, health, incentives, month, onClose }: { employee: Row, leave: Row[], health: Row[], incentives: Row[], month: string, onClose: () => void }) {
+  const n = nameOf(employee);
+  const stats = employeeLeaveStats(n, leave, month);
+  const inc = employeeIncentiveHours(n, employee, incentives);
+  const exp = employeeHealthExpire(n, health);
+  return <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={onClose}>
+    <div className="card" style={{ width:'min(560px, 96vw)', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
+      <div className="top"><h2>👤 {n || '직원 상세정보'}</h2><button className="btn secondary" onClick={onClose}>닫기</button></div>
+      <div className="grid2">
+        <div><div className="muted small">닉네임</div><b>{val(employee, ['닉네임','별명']) || '-'}</b></div>
+        <div><div className="muted small">직급</div><b>{val(employee, ['직급','직책']) || '-'}</b></div>
+        <div><div className="muted small">부서</div><b>{val(employee, ['부서','구분']) || '-'}</b></div>
+        <div><div className="muted small">재직상태</div><b>{val(employee, ['상태','재직상태','사용여부']) || '-'}</b></div>
+        <div style={{gridColumn:'1/-1'}}><div className="muted small">연락처</div><b>{val(employee, ['연락처','전화번호','휴대폰','핸드폰']) || '-'}</b></div>
+      </div>
+      <hr />
+      <h3>{month} 휴무 현황</h3>
+      <div className="cards">
+        <Stat t="총휴무" v={stats.total} />
+        <Stat t="휴무" v={stats.off} />
+        <Stat t="오전반차" v={stats.am} />
+        <Stat t="오후반차" v={stats.pm} />
+        <Stat t="V" v={stats.v} />
+        <Stat t="오전반차(V)" v={stats.amv} />
+        <Stat t="오후반차(V)" v={stats.pmv} />
+      </div>
+      <div className="grid2">
+        <div className="card"><h3>인센티브</h3><p><b>{inc}시간</b></p><p className="muted small">사용가능 {Math.floor(inc / 12)}개 / 잔여 {inc % 12}시간</p></div>
+        <div className="card"><h3>보건증</h3><p><b>{exp || '미등록'}</b></p></div>
+      </div>
+    </div>
+  </div>;
+}
+function Employees({ rows, leave, health, incentives, month, onSaved, isAdmin }: { rows: Row[], leave: Row[], health: Row[], incentives: Row[], month: string, onSaved: () => void, isAdmin: boolean }) {
+  const [q, setQ] = useState(''); const [name, setName] = useState(''); const [position, setPosition] = useState(''); const [dept, setDept] = useState(''); const [status, setStatus] = useState('사용가능'); const [saving, setSaving] = useState(false); const [selected, setSelected] = useState<Row | null>(null);
+  const filtered = rows.filter(r => nameOf(r).includes(q) || val(r, ['닉네임','부서','직급','연락처']).includes(q));
   async function save() { if (!name.trim()) return alert('이름을 입력하세요.'); setSaving(true); const j = await apiPost({ action: 'saveEmployee', name, position, dept, status }); setSaving(false); if (j.ok === false) return alert(j.error || '저장 실패'); setName(''); setPosition(''); setDept(''); onSaved(); }
-  return <><div className="card"><h2>직원 등록</h2><div className="row"><input className="input grow" placeholder="이름" value={name} onChange={e => setName(e.target.value)} /><input className="input" placeholder="직급" value={position} onChange={e => setPosition(e.target.value)} /><select value={dept} onChange={e => setDept(e.target.value)}><option value="">부서</option><option>홀</option><option>주방</option></select><select value={status} onChange={e => setStatus(e.target.value)}><option>사용가능</option><option>휴직</option><option>퇴사</option></select><button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '직원 저장'}</button></div></div><div className="card"><h2>직원 목록</h2><input className="input" placeholder="이름 검색" value={q} onChange={e => setQ(e.target.value)} style={{ marginBottom: 12 }} /><Table title="" rows={filtered} /></div></>;
+  return <>
+    <div className="card"><h2>직원 등록</h2>{!isAdmin && <p className="muted">조회 전용입니다. 수정은 관리자 모드에서 가능합니다.</p>}{isAdmin && <div className="row"><input className="input grow" placeholder="이름" value={name} onChange={e => setName(e.target.value)} /><input className="input" placeholder="직급" value={position} onChange={e => setPosition(e.target.value)} /><select value={dept} onChange={e => setDept(e.target.value)}><option value="">부서</option><option>홀</option><option>주방</option></select><select value={status} onChange={e => setStatus(e.target.value)}><option>사용가능</option><option>휴직</option><option>퇴사</option></select><button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '직원 저장'}</button></div>}</div>
+    <div className="card"><h2>직원 목록</h2><input className="input" placeholder="이름/닉네임/부서/직급/연락처 검색" value={q} onChange={e => setQ(e.target.value)} style={{ marginBottom: 12 }} />
+      {!filtered.length && <p className="muted">표시할 직원이 없습니다.</p>}
+      {!!filtered.length && <div style={{ overflowX:'auto' }}><table><thead><tr><th>이름</th><th>닉네임</th><th>직급</th><th>부서</th><th>재직상태</th><th>연락처</th></tr></thead><tbody>{filtered.map((r, i) => <tr key={i} onClick={() => setSelected(r)} style={{ cursor:'pointer' }}><td><b>{nameOf(r)}</b></td><td>{val(r, ['닉네임','별명'])}</td><td>{val(r, ['직급','직책'])}</td><td>{val(r, ['부서','구분'])}</td><td>{val(r, ['상태','재직상태','사용여부'])}</td><td>{val(r, ['연락처','전화번호','휴대폰','핸드폰'])}</td></tr>)}</tbody></table></div>}
+      <p className="muted small">직원 행을 클릭하면 상세정보가 열립니다.</p>
+    </div>
+    {selected && <EmployeeDetailModal employee={selected} leave={leave} health={health} incentives={incentives} month={month} onClose={() => setSelected(null)} />}
+  </>;
 }
 
 function daysInMonth(month: string) {
@@ -182,23 +345,26 @@ function leaveTypeOf(r?: Row) {
 }
 function leaveBadgeClass(type: string) {
   if (type === 'V') return 'leave-badge v';
-  if (type === '반차+V') return 'leave-badge half';
+  if (type === '오전반차(V)' || type === '오후반차(V)') return 'leave-badge v';
+  if (type === '반차+V' || type === '오전반차' || type === '오후반차' || type === '오전반차(V)' || type === '오후반차(V)') return 'leave-badge half';
   if (type === '휴무') return 'leave-badge off';
   return 'leave-badge work';
 }
 function leaveCountOf(type: string) {
-  if (type === '반차+V') return 0.5;
+  if (type === '반차+V' || type === '오전반차' || type === '오후반차' || type === '오전반차(V)' || type === '오후반차(V)') return 0.5;
   if (type === 'V') return 1;
   if (type === '휴무') return 1;
   return 0;
 }
-function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], employees: Row[], month: string, onAdded: (items: Row[]) => void, onDeleted: (item: Row) => void }) {
+function Leave({ rows, employees, month, onAdded, onDeleted, isAdmin }: { rows: Row[], employees: Row[], month: string, onAdded: (items: Row[]) => void, onDeleted: (item: Row) => void, isAdmin: boolean }) {
   const activeEmployees = employees.filter(isActive).filter(r => nameOf(r));
   const [date, setDate] = useState(`${month}-01`);
   const [type, setType] = useState('휴무');
   const [memo, setMemo] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const days = useMemo(() => daysInMonth(month), [month]);
   const monthRows = rows.filter(r => dateOnly(val(r, ['날짜', '일자', '휴무일'])).startsWith(month));
   const holidays = monthRows.filter(r => val(r, ['공휴일', '명칭']) || val(r, ['_sheet']) === '공휴일입력');
@@ -207,7 +373,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], em
     const d = dateOnly(val(r, ['날짜', '일자', '휴무일']));
     const n = nameOf(r);
     const t = leaveTypeOf(r);
-    if (d && n && (t === '휴무' || t === 'V' || t === '반차+V')) byKey.set(`${d}|${n}`, r);
+    if (d && n && (t === '휴무' || t === 'V' || t === '반차+V' || t === '오전반차' || t === '오후반차' || t === '오전반차(V)' || t === '오후반차(V)')) byKey.set(`${d}|${n}`, r);
   });
   const summary = activeEmployees.map(emp => {
     const n = nameOf(emp);
@@ -218,7 +384,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], em
       acc[t] = (acc[t] || 0) + 1;
       return acc;
     }, { total: 0 });
-    return { name: n, total: counts.total || 0, off: counts['휴무'] || 0, v: counts['V'] || 0, half: counts['반차+V'] || 0 };
+    return { name: n, total: counts.total || 0, off: counts['휴무'] || 0, v: counts['V'] || 0, half: counts['반차+V'] || 0, amHalf: counts['오전반차'] || 0, pmHalf: counts['오후반차'] || 0, amHalfV: counts['오전반차(V)'] || 0, pmHalfV: counts['오후반차(V)'] || 0 };
   });
   function toggleName(name: string) {
     setSelected(prev => prev.includes(name) ? prev.filter(v => v !== name) : [...prev, name]);
@@ -237,7 +403,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], em
       for (const name of selected) {
         const j = await apiPost({ action: 'saveLeave', name, date, type, memo, inputMonth: month });
         if (j.ok === false) throw new Error(j.error || `${name} 저장 실패`);
-        added.push({ _sheet: '휴무입력', 입력월: month, 날짜: date, 이름: name, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: type === 'V' ? -12 : (type === '반차+V' ? -6 : 0), 메모: memo, 입력자: '홈페이지' });
+        added.push({ _sheet: '휴무입력', 입력월: month, 날짜: date, 이름: name, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: type === 'V' ? -12 : (type === '반차+V' || type === '오전반차(V)' || type === '오후반차(V)' ? -6 : 0), 메모: memo, 입력자: '홈페이지' });
       }
       setMemo('');
       if (added.length) onAdded(added);
@@ -263,23 +429,23 @@ function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], em
   }
   return <>
     <div className="card">
-      <div className="top"><h2>휴무관리 달력</h2><div className="muted">{month} / 직원별 월간 휴무표</div></div>
-      <div className="leave-controls">
+      <div className="top"><h2>휴무관리</h2><div className="row"><button className={viewMode === 'table' ? 'btn' : 'btn secondary'} onClick={() => setViewMode('table')}>표 보기</button><button className={viewMode === 'calendar' ? 'btn' : 'btn secondary'} onClick={() => setViewMode('calendar')}>📅 달력 보기</button></div></div><div className="muted">{month} / 직원별 월간 휴무표</div>
+      {isAdmin ? <div className="leave-controls">
         <input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <select value={type} onChange={e => setType(e.target.value)}><option>휴무</option><option>V</option><option>반차+V</option></select>
+        <select value={type} onChange={e => setType(e.target.value)}><option>휴무</option><option>오전반차</option><option>오후반차</option><option>V</option><option>오전반차(V)</option><option>오후반차(V)</option></select>
         <input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} />
         <button className="btn" onClick={saveBulk} disabled={saving}>{saving ? '저장중' : `${selected.length || 0}명 저장`}</button>
-      </div>
-      <div className="employee-checks">
+      </div> : <p className="muted">조회 전용입니다. 휴무 입력/삭제는 관리자 모드에서 가능합니다.</p>}
+      {isAdmin && <div className="employee-checks">
         {activeEmployees.map((e, i) => {
           const n = nameOf(e);
           return <label key={i} className={selected.includes(n) ? 'check active' : 'check'}><input type="checkbox" checked={selected.includes(n)} onChange={() => toggleName(n)} /> {n}</label>;
         })}
-      </div>
-      <div className="legend"><span className="leave-badge work">근무</span><span className="leave-badge off">휴</span><span className="leave-badge v">V</span><span className="leave-badge half">반차+V</span><span className="muted small">칸 클릭 = 해당 직원/날짜 선택</span></div>
+      </div>}
+      <div className="legend"><span className="leave-badge work">근무</span><span className="leave-badge off">휴</span><span className="leave-badge v">V</span><span className="leave-badge half">오전반차</span><span className="leave-badge half">오후반차</span><span className="leave-badge v">오전반차(V)</span><span className="leave-badge v">오후반차(V)</span><span className="muted small">칸 클릭 = 해당 직원/날짜 선택</span></div>
     </div>
 
-    <div className="card calendar-wrap">
+    {viewMode === 'table' && <div className="card calendar-wrap">
       <table className="calendar-table">
         <thead><tr><th className="sticky-name">직원명</th>{days.map(d => <th key={d} className={dayClass(d, holidays)}>{dayLabel(d)}</th>)}</tr></thead>
         <tbody>
@@ -293,14 +459,61 @@ function Leave({ rows, employees, month, onAdded, onDeleted }: { rows: Row[], em
           })}
         </tbody>
       </table>
-    </div>
+    </div>}
+
+    {viewMode === 'calendar' && <MonthlyLeaveCalendar month={month} days={days} rows={monthRows} onSelect={setSelectedDay} />}
+    {selectedDay && <DayLeaveModal date={selectedDay} rows={monthRows.filter(r => dateOnly(val(r, ['날짜','일자','휴무일'])) === selectedDay)} onClose={() => setSelectedDay(null)} />}
 
     <div className="grid2">
-      <div className="card"><h2>직원별 휴무 개수</h2><table><thead><tr><th>직원</th><th>총휴무</th><th>휴</th><th>V</th><th>반차+V</th></tr></thead><tbody>{summary.map(s => <tr key={s.name}><td>{s.name}</td><td><b>{s.total}</b></td><td>{s.off}</td><td>{s.v}</td><td>{s.half}</td></tr>)}</tbody></table></div>
-      <div className="card"><h2>{month} 휴무 목록</h2>{!monthRows.length && <p className="muted">등록된 휴무가 없습니다.</p>}{monthRows.slice(0, 80).map((r, i) => <div key={i} className="leave-list-row"><span>{dateOnly(val(r, ['날짜', '일자', '휴무일']))}</span><b>{nameOf(r)}</b><span className={leaveBadgeClass(leaveTypeOf(r))}>{leaveTypeOf(r)}</span>{r._sheet === '휴무입력' && <button className="btn secondary" onClick={() => deleteOne(r)}>삭제</button>}</div>)}</div>
+      <div className="card"><h2>직원별 휴무 개수</h2><table><thead><tr><th>직원</th><th>총휴무</th><th>휴</th><th>V</th><th>오전반차</th><th>오후반차</th><th>오전반차(V)</th><th>오후반차(V)</th></tr></thead><tbody>{summary.map(s => <tr key={s.name}><td>{s.name}</td><td><b>{s.total}</b></td><td>{s.off}</td><td>{s.v}</td><td>{s.amHalf}</td><td>{s.pmHalf}</td><td>{s.amHalfV}</td><td>{s.pmHalfV}</td></tr>)}</tbody></table></div>
+      <div className="card"><h2>{month} 휴무 목록</h2>{!monthRows.length && <p className="muted">등록된 휴무가 없습니다.</p>}{monthRows.slice(0, 80).map((r, i) => <div key={i} className="leave-list-row"><span>{dateOnly(val(r, ['날짜', '일자', '휴무일']))}</span><b>{nameOf(r)}</b><span className={leaveBadgeClass(leaveTypeOf(r))}>{leaveTypeOf(r)}</span>{isAdmin && r._sheet === '휴무입력' && <button className="btn secondary" onClick={() => deleteOne(r)}>삭제</button>}</div>)}</div>
     </div>
   </>;
 }
+
+function groupByDate(rows: Row[]) {
+  const map = new Map<string, Row[]>();
+  rows.forEach(r => {
+    const d = dateOnly(val(r, ['날짜','일자','휴무일']));
+    if (!d) return;
+    if (!map.has(d)) map.set(d, []);
+    map.get(d)!.push(r);
+  });
+  return map;
+}
+function MonthlyLeaveCalendar({ month, days, rows, onSelect }: { month: string, days: string[], rows: Row[], onSelect: (d: string) => void }) {
+  const byDate = groupByDate(rows);
+  const first = new Date(`${month}-01T00:00:00`).getDay();
+  const cells = [...Array(first).fill(''), ...days];
+  while (cells.length % 7 !== 0) cells.push('');
+  return <div className="card"><h2>📅 {month} 휴무 달력</h2><div style={{display:'grid', gridTemplateColumns:'repeat(7, minmax(90px, 1fr))', gap:8}}>
+    {['일','월','화','수','목','금','토'].map((w,i)=><div key={w} className="muted" style={{fontWeight:700, color:i===0?'#ef4444':i===6?'#2563eb':undefined}}>{w}</div>)}
+    {cells.map((d, i) => {
+      const list = d ? (byDate.get(d) || []) : [];
+      const isToday = d === localDateKey();
+      const dow = i % 7;
+      return <button key={i} onClick={() => d && onSelect(d)} className="card" style={{textAlign:'left', minHeight:96, border:isToday?'2px solid #2563eb':undefined, cursor:d?'pointer':'default', opacity:d?1:0.35}}>
+        <b style={{color:dow===0?'#ef4444':dow===6?'#2563eb':undefined}}>{d ? Number(d.slice(8,10)) : ''}</b>
+        <div style={{marginTop:6, fontSize:12}}>{list.slice(0,4).map((r,idx)=><div key={idx}><span className={leaveBadgeClass(leaveTypeOf(r))}>{nameOf(r)}{leaveTypeOf(r) && `(${leaveTypeOf(r)})`}</span></div>)}{list.length>4 && <span className="muted">+{list.length-4}명</span>}{d && !list.length && <span className="muted">휴무없음</span>}</div>
+      </button>;
+    })}
+  </div></div>;
+}
+function DayLeaveModal({ date, rows, onClose }: { date: string, rows: Row[], onClose: () => void }) {
+  const groups = ['휴무','오전반차','오후반차','V','오전반차(V)','오후반차(V)'];
+  return <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,.35)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center'}} onClick={onClose}>
+    <div className="card" style={{width:'min(520px, 92vw)', maxHeight:'80vh', overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+      <div className="top"><h2>{date} 휴무</h2><button className="btn secondary" onClick={onClose}>닫기</button></div>
+      {!rows.length && <p className="muted">휴무자가 없습니다.</p>}
+      {groups.map(g => {
+        const list = rows.filter(r => leaveTypeOf(r) === g);
+        if (!list.length) return null;
+        return <div key={g} style={{margin:'12px 0'}}><b className={leaveBadgeClass(g)}>{g}</b><p>{list.map(r=>nameOf(r)).filter(Boolean).join(', ')}</p></div>;
+      })}
+    </div>
+  </div>;
+}
+
 function dday(dateValue: any) {
   const d = dateOnly(dateValue);
   if (!d) return null;
@@ -325,7 +538,7 @@ function incentiveDisplay(hours: number) {
   const remain = hours % 12;
   return `${hours}시간 (${usable}개 + ${remain}시간)`;
 }
-function Incentive({ rows, employees, onSaved }: { rows: Row[], employees: Row[], onSaved: () => void }) {
+function Incentive({ rows, employees, onSaved, isAdmin }: { rows: Row[], employees: Row[], onSaved: () => void, isAdmin: boolean }) {
   const [name, setName] = useState('');
   const [hours, setHours] = useState('');
   const [memo, setMemo] = useState('');
@@ -369,7 +582,7 @@ function Incentive({ rows, employees, onSaved }: { rows: Row[], employees: Row[]
 
   return <div className="grid2">
     <div className="card"><h2>직원별 인센티브 현황</h2><table><thead><tr><th>직원</th><th>현재누적</th><th>사용가능</th><th>잔여</th></tr></thead><tbody>{summary.map(s => <tr key={s.name}><td><b>{s.name}</b></td><td>{s.hours}시간</td><td>{Math.floor(s.hours / 12)}개</td><td>{s.hours % 12}시간</td></tr>)}</tbody></table><p className="muted small">표시는 12시간 = 휴무 1개 기준입니다.</p></div>
-    <div className="card"><h2>수기 조정</h2><div className="row"><select value={name} onChange={e => setName(e.target.value)}><option value="">직원 선택</option>{activeNames.map(n => <option key={n}>{n}</option>)}</select><input className="input" type="number" placeholder="시간 예: 3 / -2" value={hours} onChange={e => setHours(e.target.value)} /><input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} /><button className="btn" onClick={adjust} disabled={saving}>{saving ? '저장중' : '조정 저장'}</button></div><p className="muted small">토/일/공휴일 +1, V -12, 반차+V -6은 휴무 저장 시 자동 기록됩니다.</p></div>
+    <div className="card"><h2>수기 조정</h2>{!isAdmin && <p className="muted">조회 전용입니다. 수기 조정은 관리자 모드에서 가능합니다.</p>}{isAdmin && <div className="row"><select value={name} onChange={e => setName(e.target.value)}><option value="">직원 선택</option>{activeNames.map(n => <option key={n}>{n}</option>)}</select><input className="input" type="number" placeholder="시간 예: 3 / -2" value={hours} onChange={e => setHours(e.target.value)} /><input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} /><button className="btn" onClick={adjust} disabled={saving}>{saving ? '저장중' : '조정 저장'}</button></div>}<p className="muted small">V -12, 오전반차(V)/오후반차(V) -6은 휴무 저장 시 자동 기록됩니다.</p></div>
     <div className="card" style={{gridColumn:'1/-1'}}><h2>인센티브 로그</h2>{!logs.length && <p className="muted">로그가 없습니다.</p>}<table><thead><tr><th>날짜</th><th>직원</th><th>구분</th><th>시간</th><th>메모</th></tr></thead><tbody>{logs.map((r,i) => <tr key={i}><td>{dateOnly(val(r, ['날짜','일자','입력시간']))}</td><td>{nameOf(r)}</td><td>{val(r, ['구분','사유','내용'])}</td><td>{val(r, ['시간','인센티브변동'])}</td><td>{val(r, ['메모','비고','내용'])}</td></tr>)}</tbody></table></div>
   </div>;
 }
@@ -391,7 +604,7 @@ function Staffing({ rows, employees, leave, month }: { rows: Row[], employees: R
   </div>;
 }
 
-function Health({ rows, employees, onSaved }: { rows: Row[], employees: Row[], onSaved: () => void }) {
+function Health({ rows, employees, onSaved, isAdmin }: { rows: Row[], employees: Row[], onSaved: () => void, isAdmin: boolean }) {
   const [name, setName] = useState('');
   const [expire, setExpire] = useState('');
   const [memo, setMemo] = useState('');
@@ -411,15 +624,15 @@ function Health({ rows, employees, onSaved }: { rows: Row[], employees: Row[], o
     setName(''); setExpire(''); setMemo(''); onSaved();
   }
   return <>
-    <div className="card"><h2>보건증 등록/수정</h2><div className="row"><select value={name} onChange={e => setName(e.target.value)}><option value="">직원 선택</option>{activeEmployees.map(n => <option key={n}>{n}</option>)}</select><input className="input" type="date" value={expire} onChange={e => setExpire(e.target.value)} /><input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} /><button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '보건증 저장'}</button></div><p className="muted small">기존 직원은 같은 이름으로 저장하면 최신 만료일로 갱신됩니다.</p></div>
+    <div className="card"><h2>보건증 등록/수정</h2>{!isAdmin && <p className="muted">조회 전용입니다. 보건증 수정은 관리자 모드에서 가능합니다.</p>}{isAdmin && <div className="row"><select value={name} onChange={e => setName(e.target.value)}><option value="">직원 선택</option>{activeEmployees.map(n => <option key={n}>{n}</option>)}</select><input className="input" type="date" value={expire} onChange={e => setExpire(e.target.value)} /><input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} /><button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '보건증 저장'}</button></div>}<p className="muted small">기존 직원은 같은 이름으로 저장하면 최신 만료일로 갱신됩니다.</p></div>
     <div className="card"><h2>보건증 만료 현황</h2>{!sorted.length && <p className="muted">보건증 데이터가 없습니다.</p>}{sorted.map((r, i) => { const exp = val(r, ['만료일','보건증만료일','보건증 만료일','날짜']); const st = healthStatus(dday(exp)); return <div key={i} className="health-row"><b>{nameOf(r) || val(r, ['이름','직원명'])}</b><span>{dateOnly(exp) || '-'}</span><span className={`status ${st.cls}`}>{st.text}</span></div>; })}</div>
   </>;
 }
-function Notice({ rows, onSaved }: { rows: Row[], onSaved: () => void }) {
+function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, isAdmin: boolean }) {
   const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [saving, setSaving] = useState(false);
   async function save() { if (!title || !content) return alert('제목과 내용을 입력하세요.'); setSaving(true); const j = await apiPost({ action: 'saveNotice', title, content, author: '관리자' }); setSaving(false); if (j.ok === false) return alert(j.error || '저장 실패'); setTitle(''); setContent(''); onSaved(); }
   async function remove(r: Row) { if (!confirm('공지사항을 삭제할까요?')) return; const j = await apiPost({ action: 'deleteNotice', row: r._row, sheetName: r._sheet || '공지사항' }); if (j.ok === false) return alert(j.error || '삭제 실패'); onSaved(); }
-  return <><div className="card"><h2>공지 작성</h2><div className="row"><input className="input grow" placeholder="제목" value={title} onChange={e => setTitle(e.target.value)} /><input className="input grow" placeholder="내용" value={content} onChange={e => setContent(e.target.value)} /><button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '공지 저장'}</button></div></div><div className="card"><h2>공지사항</h2>{!rows.length && <p className="muted">공지 없음</p>}{rows.map((r, i) => <div key={i} className="notice-row"><div><b>{val(r, ['제목'])}</b><p>{val(r, ['내용'])}</p><span className="muted small">{dateOnly(val(r, ['작성일','입력시간']))}</span></div>{r._row && <button className="btn secondary" onClick={() => remove(r)}>삭제</button>}</div>)}</div></>;
+  return <><div className="card"><h2>공지 작성</h2>{!isAdmin && <p className="muted">조회 전용입니다. 공지 작성/삭제는 관리자 모드에서 가능합니다.</p>}{isAdmin && <div className="row"><input className="input grow" placeholder="제목" value={title} onChange={e => setTitle(e.target.value)} /><input className="input grow" placeholder="내용" value={content} onChange={e => setContent(e.target.value)} /><button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '공지 저장'}</button></div>}</div><div className="card"><h2>공지사항</h2>{!rows.length && <p className="muted">공지 없음</p>}{rows.map((r, i) => <div key={i} className="notice-row"><div><b>{val(r, ['제목'])}</b><p>{val(r, ['내용'])}</p><span className="muted small">{dateOnly(val(r, ['작성일','입력시간']))}</span></div>{isAdmin && r._row && <button className="btn secondary" onClick={() => remove(r)}>삭제</button>}</div>)}</div></>;
 }
 
 function Operations({ data, employees, leave, incentives, health, month }: { data: Row, employees: Row[], leave: Row[], incentives: Row[], health: Row[], month: string }) {
@@ -442,32 +655,36 @@ function Operations({ data, employees, leave, incentives, health, month }: { dat
     const off = mine.filter(r => leaveTypeOf(r) === '휴무').length;
     const v = mine.filter(r => leaveTypeOf(r) === 'V').length;
     const half = mine.filter(r => leaveTypeOf(r) === '반차+V').length;
-    const totalLeave = off + v + half * 0.5;
+    const amHalf = mine.filter(r => leaveTypeOf(r) === '오전반차').length;
+    const pmHalf = mine.filter(r => leaveTypeOf(r) === '오후반차').length;
+    const amHalfV = mine.filter(r => leaveTypeOf(r) === '오전반차(V)').length;
+    const pmHalfV = mine.filter(r => leaveTypeOf(r) === '오후반차(V)').length;
+    const totalLeave = off + v + (half + amHalf + pmHalf + amHalfV + pmHalfV) * 0.5;
     const h = healthMap.get(n);
     const exp = h ? val(h, ['만료일','보건증만료일','보건증 만료일','날짜']) : '';
     const st = healthStatus(dday(exp));
     const inc = incentiveMap.get(n) || 0;
-    return { name: n, dept: val(emp, ['부서']), position: val(emp, ['직급']), off, v, half, totalLeave, inc, health: exp ? `${dateOnly(exp)} / ${st.text}` : '미등록' };
+    return { name: n, dept: val(emp, ['부서']), position: val(emp, ['직급']), off, v, half, amHalf, pmHalf, amHalfV, pmHalfV, totalLeave, inc, health: exp ? `${dateOnly(exp)} / ${st.text}` : '미등록' };
   }).sort((a,b) => b.totalLeave - a.totalLeave || b.inc - a.inc);
   const totals = rows.reduce((acc: Row, r) => {
-    acc.off += r.off; acc.v += r.v; acc.half += r.half; acc.totalLeave += r.totalLeave; acc.inc += r.inc;
+    acc.off += r.off; acc.v += r.v; acc.half += r.half; acc.amHalf += r.amHalf || 0; acc.pmHalf += r.pmHalf || 0; acc.amHalfV += r.amHalfV || 0; acc.pmHalfV += r.pmHalfV || 0; acc.totalLeave += r.totalLeave; acc.inc += r.inc;
     return acc;
-  }, { off: 0, v: 0, half: 0, totalLeave: 0, inc: 0 });
+  }, { off: 0, v: 0, half: 0, amHalf: 0, pmHalf: 0, amHalfV: 0, pmHalfV: 0, totalLeave: 0, inc: 0 });
   return <>
     <div className="cards">
       <Stat t="월 휴무 합계" v={totals.totalLeave} />
       <Stat t="V 사용" v={totals.v} />
-      <Stat t="반차+V" v={totals.half} />
+      <Stat t="반차 합계" v={`${totals.amHalf + totals.pmHalf + totals.amHalfV + totals.pmHalfV}`} />
       <Stat t="총 인센티브" v={`${totals.inc}h`} />
     </div>
     <div className="grid2">
-      <div className="card"><h2>{month} 직원별 운영 통계</h2><div className="ops-table"><table><thead><tr><th>직원</th><th>부서</th><th>휴</th><th>V</th><th>반차</th><th>총휴무</th><th>인센티브</th><th>보건증</th></tr></thead><tbody>{rows.map(r => <tr key={r.name}><td><b>{r.name}</b><div className="muted small">{r.position}</div></td><td>{r.dept}</td><td>{r.off}</td><td>{r.v}</td><td>{r.half}</td><td><b>{r.totalLeave}</b></td><td>{incentiveDisplay(r.inc)}</td><td>{r.health}</td></tr>)}</tbody></table></div></div>
+      <div className="card"><h2>{month} 직원별 운영 통계</h2><div className="ops-table"><table><thead><tr><th>직원</th><th>부서</th><th>휴</th><th>V</th><th>오전</th><th>오후</th><th>오전V</th><th>오후V</th><th>총휴무</th><th>인센티브</th><th>보건증</th></tr></thead><tbody>{rows.map(r => <tr key={r.name}><td><b>{r.name}</b><div className="muted small">{r.position}</div></td><td>{r.dept}</td><td>{r.off}</td><td>{r.v}</td><td>{r.amHalf}</td><td>{r.pmHalf}</td><td>{r.amHalfV}</td><td>{r.pmHalfV}</td><td><b>{r.totalLeave}</b></td><td>{incentiveDisplay(r.inc)}</td><td>{r.health}</td></tr>)}</tbody></table></div></div>
       <div className="card"><h2>최근 활동 로그</h2>{!logs.length && <p className="muted">아직 로그가 없습니다.</p>}{logs.map((r: Row, i: number) => <div key={i} className="timeline-row"><b>{dateOnly(val(r, ['시간','입력시간','날짜'])) || '-'}</b><span>{val(r, ['액션','구분','내용'])}</span><p>{val(r, ['내용','메모','비고'])}</p></div>)}</div>
     </div>
   </>;
 }
 
-function SystemTools({ data, month, onSaved }: { data: Row, month: string, onSaved: () => void }) {
+function SystemTools({ data, month, onSaved, isAdmin }: { data: Row, month: string, onSaved: () => void, isAdmin: boolean }) {
   const [busy, setBusy] = useState('');
   async function run(action: string, confirmText: string) {
     if (!confirm(confirmText)) return;
@@ -481,8 +698,9 @@ function SystemTools({ data, month, onSaved }: { data: Row, month: string, onSav
     finally { setBusy(''); }
   }
   return <div className="grid2">
-    <div className="card"><h2>월 마감</h2><p className="muted">현재 월({month})의 휴무·인센티브·로그 상태를 마감 기록으로 남깁니다. 인센티브 누적은 유지됩니다.</p><button className="btn" disabled={!!busy} onClick={() => run('closeMonth', `${month} 월마감을 진행할까요?`)}>{busy === 'closeMonth' ? '처리중...' : `${month} 월마감`}</button></div>
-    <div className="card"><h2>MASTER_DB 백업</h2><p className="muted">현재 스프레드시트 사본을 생성합니다. 배포 전이나 월말에 사용하세요.</p><button className="btn" disabled={!!busy} onClick={() => run('backupMaster', 'MASTER_DB 백업을 생성할까요?')}>{busy === 'backupMaster' ? '처리중...' : '백업 생성'}</button></div>
+    {!isAdmin && <div className="card" style={{gridColumn:'1/-1'}}><h2>조회 전용</h2><p className="muted">월마감과 백업은 관리자 모드에서만 가능합니다.</p></div>}
+    {isAdmin && <div className="card"><h2>월 마감</h2><p className="muted">현재 월({month})의 휴무·인센티브·로그 상태를 마감 기록으로 남깁니다. 인센티브 누적은 유지됩니다.</p><button className="btn" disabled={!!busy} onClick={() => run('closeMonth', `${month} 월마감을 진행할까요?`)}>{busy === 'closeMonth' ? '처리중...' : `${month} 월마감`}</button></div>}
+    {isAdmin && <div className="card"><h2>MASTER_DB 백업</h2><p className="muted">현재 스프레드시트 사본을 생성합니다. 배포 전이나 월말에 사용하세요.</p><button className="btn" disabled={!!busy} onClick={() => run('backupMaster', 'MASTER_DB 백업을 생성할까요?')}>{busy === 'backupMaster' ? '처리중...' : '백업 생성'}</button></div>}
     <div className="card"><h2>시스템 정보</h2><p>버전: {data.version || '-'}</p><p>스프레드시트: {data.spreadsheet || '-'}</p><p>이번달 자동 인센티브 추가: {data.workIncentiveSync?.added ?? '-'}</p></div>
     <Table title="시트 연결상태" rows={data.sheets ? Object.entries(data.sheets).map(([key, connected]) => ({ key, connected: connected ? 'OK' : '없음' })) : []} />
   </div>;
