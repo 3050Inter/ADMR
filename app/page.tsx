@@ -425,25 +425,73 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
   }
   async function saveBulk() {
     if (!date || selected.length === 0) return alert('날짜와 직원을 선택하세요.');
+
+    const existingRows = selected
+      .map(n => byKey.get(`${date}|${n}`))
+      .filter(Boolean) as Row[];
+    const existingNames = new Set(existingRows.map(r => nameOf(r)));
+    const newNames = selected.filter(n => !existingNames.has(n));
+
+    if (existingRows.length) {
+      const preview = existingRows
+        .slice(0, 5)
+        .map(r => `${nameOf(r)}: ${leaveTypeOf(r) || '휴무'} → ${type}`)
+        .join('
+');
+      const more = existingRows.length > 5 ? `
+외 ${existingRows.length - 5}명` : '';
+      const ok = confirm(`이미 등록된 휴무가 있습니다.
+
+${preview}${more}
+
+기존 휴무를 선택한 종류로 수정할까요?`);
+      if (!ok) return;
+    }
+
     setSaving(true);
     try {
-      const j = await apiPost({ action: 'saveLeaveBulk', names: selected, date, type, memo, inputMonth: month });
-      if (j.ok === false) throw new Error(j.error || '휴무 저장 실패');
-      const savedNames: string[] = Array.isArray(j.savedNames) && j.savedNames.length ? j.savedNames : selected;
-      const added: Row[] = savedNames.map((name: string) => ({
-        _sheet: '휴무입력',
-        입력월: month,
-        날짜: date,
-        이름: name,
-        구분: type,
-        휴무갯수: leaveCountOf(type),
-        인센티브변동: leaveDeltaOf(type),
-        메모: memo,
-        입력자: '홈페이지'
-      }));
+      let changed = 0;
+      for (const r of existingRows) {
+        const current = leaveTypeOf(r) || '휴무';
+        if (current === type) continue;
+        const j = await apiPost({
+          action: 'updateLeave',
+          row: r._row,
+          sheetName: '휴무입력',
+          date: dateOnly(val(r, ['날짜', '일자', '휴무일'])),
+          name: nameOf(r),
+          oldType: current,
+          type,
+          memo: memo || val(r, ['메모', '비고']),
+        });
+        if (j.ok === false) throw new Error(j.error || `${nameOf(r)} 수정 실패`);
+        onUpdated(r, { ...r, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: leaveDeltaOf(type), 메모: memo || val(r, ['메모', '비고']) });
+        changed += 1;
+      }
+
+      let saved = 0;
+      if (newNames.length) {
+        const j = await apiPost({ action: 'saveLeaveBulk', names: newNames, date, type, memo, inputMonth: month });
+        if (j.ok === false) throw new Error(j.error || '휴무 저장 실패');
+        const savedNames: string[] = Array.isArray(j.savedNames) && j.savedNames.length ? j.savedNames : newNames;
+        const added: Row[] = savedNames.map((name: string) => ({
+          _sheet: '휴무입력',
+          입력월: month,
+          날짜: date,
+          이름: name,
+          구분: type,
+          휴무갯수: leaveCountOf(type),
+          인센티브변동: leaveDeltaOf(type),
+          메모: memo,
+          입력자: '홈페이지'
+        }));
+        if (added.length) onAdded(added);
+        saved = savedNames.length;
+      }
+
       setMemo('');
-      if (added.length) onAdded(added);
-      alert(j.message || `${savedNames.length}명 휴무 저장 완료`);
+      if (!changed && !saved) alert('이미 같은 휴무로 등록되어 있습니다.');
+      else alert(`휴무 처리 완료: 신규 ${saved}명 / 수정 ${changed}명`);
     } catch (e: any) {
       alert(String(e?.message || e));
     } finally {
@@ -523,7 +571,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
 
     <div className="grid2">
       <div className="card"><h2>직원별 휴무 개수</h2><table><thead><tr><th>직원</th><th>총휴무</th><th>휴</th><th>V</th><th>오전반차</th><th>오후반차</th><th>오전반차(V)</th><th>오후반차(V)</th></tr></thead><tbody>{summary.map(s => <tr key={s.name}><td>{s.name}</td><td><b>{s.total}</b></td><td>{s.off}</td><td>{s.v}</td><td>{s.amHalf}</td><td>{s.pmHalf}</td><td>{s.amHalfV}</td><td>{s.pmHalfV}</td></tr>)}</tbody></table></div>
-      <div className="card"><h2>{month} 휴무 목록</h2>{!monthRows.length && <p className="muted">등록된 휴무가 없습니다.</p>}{monthRows.slice(0, 80).map((r, i) => <div key={i} className="leave-list-row"><span>{dateOnly(val(r, ['날짜', '일자', '휴무일']))}</span><b>{nameOf(r)}</b><span className={leaveBadgeClass(leaveTypeOf(r))}>{leaveTypeOf(r)}</span>{isAdmin && r._sheet === '휴무입력' && <><button className="btn secondary" onClick={() => editOne(r)}>수정</button><button className="btn secondary" onClick={() => deleteOne(r)}>삭제</button></>}</div>)}</div>
+      <div className="card"><h2>{month} 휴무 목록</h2>{!monthRows.length && <p className="muted">등록된 휴무가 없습니다.</p>}{monthRows.slice(0, 80).map((r, i) => <div key={i} className="leave-list-row"><span>{dateOnly(val(r, ['날짜', '일자', '휴무일']))}</span><b>{nameOf(r)}</b><span className={leaveBadgeClass(leaveTypeOf(r))}>{leaveTypeOf(r)}</span>{isAdmin && nameOf(r) && dateOnly(val(r, ['날짜', '일자', '휴무일'])) && <><button className="btn secondary" onClick={() => editOne(r)}>수정</button><button className="btn secondary" onClick={() => deleteOne(r)}>삭제</button></>}</div>)}</div>
     </div>
   </>;
 }
