@@ -140,7 +140,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 v1.0.3 Final Stable</h1><div className="muted">v1.0.3 Final Stable / 모바일 최적화 · 관리자 잠금 · 휴무관리 안정화</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 직원관리 v1.0.4 Hotfix</h1><div className="muted">v1.0.3 Final Stable / 모바일 최적화 · 관리자 잠금 · 휴무관리 안정화</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -273,15 +273,26 @@ function employeeIncentiveHours(name: string, employee: Row, incentives: Row[]) 
   });
   return hours;
 }
-function employeeHealthExpire(name: string, health: Row[]) {
-  const h = health.find(r => nameOf(r) === name || val(r, ['이름','직원명']) === name);
-  return h ? dateOnly(val(h, ['만료일','보건증만료일','보건증 만료일','날짜'])) : '';
+function normName(v: any) {
+  return String(v || '').replace(/\s+/g, '').trim().toLowerCase();
+}
+function rowNames(r: Row) {
+  return [
+    nameOf(r),
+    val(r, ['이름','직원명','성명','닉네임','별명','name']),
+    val(r, ['이름(실명)','실명','대상자','성함'])
+  ].map(normName).filter(Boolean);
+}
+function employeeHealthExpire(name: string, employee: Row, health: Row[]) {
+  const targets = new Set([normName(name), ...rowNames(employee)]);
+  const h = health.find(r => rowNames(r).some(n => targets.has(n)));
+  return h ? dateOnly(val(h, ['만료일','보건증만료일','보건증 만료일','유효기간','유효기간만료일','날짜'])) : '';
 }
 function EmployeeDetailModal({ employee, leave, health, incentives, month, onClose }: { employee: Row, leave: Row[], health: Row[], incentives: Row[], month: string, onClose: () => void }) {
   const n = nameOf(employee);
   const stats = employeeLeaveStats(n, leave, month);
   const inc = employeeIncentiveHours(n, employee, incentives);
-  const exp = employeeHealthExpire(n, health);
+  const exp = employeeHealthExpire(n, employee, health);
   return <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={onClose}>
     <div className="card" style={{ width:'min(560px, 96vw)', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
       <div className="top"><h2>👤 {n || '직원 상세정보'}</h2><button className="btn secondary" onClick={onClose}>닫기</button></div>
