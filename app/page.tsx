@@ -495,7 +495,7 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
         if (!byDate.has(t.date)) byDate.set(t.date, []);
         byDate.get(t.date)!.push(t.name);
       });
-      for (const [targetDate, names] of byDate.entries()) {
+      for (const [targetDate, names] of Array.from(byDate.entries())) {
         const j = await apiPost({ action: 'saveLeaveBulk', names, date: targetDate, type, memo, inputMonth: month });
         if (j.ok === false) throw new Error(j.error || `${targetDate} 휴무 저장 실패`);
         const savedNames: string[] = Array.isArray(j.savedNames) && j.savedNames.length ? j.savedNames : names;
