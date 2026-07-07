@@ -66,9 +66,6 @@ export default function Page() {
       setIsAdmin(until > Date.now());
     } catch (e) {}
   }, []);
-  useEffect(() => {
-    document.title = '안다미로 스시';
-  }, []);
   function unlockAdmin() {
     const pw = window.prompt('관리자 비밀번호를 입력하세요.');
     if (pw !== ADMIN_PASSWORD) return alert('비밀번호가 맞지 않습니다.');
@@ -154,7 +151,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.0.8 Batch Fix</h1><div className="muted">v1.0.8 Batch Fix / 다중 칸 선택 저장 · 한국시간 고정</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.0.8 Stable Batch</h1><div className="muted">v1.0.8 Stable Batch / 저장 유지 · 휴무 일괄 선택</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -401,8 +398,8 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
   const [type, setType] = useState('휴무');
   const [memo, setMemo] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
   const [selectedCells, setSelectedCells] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const days = useMemo(() => daysInMonth(month), [month]);
@@ -426,74 +423,72 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
     }, { total: 0 });
     return { name: n, total: counts.total || 0, off: counts['휴무'] || 0, v: counts['V'] || 0, half: counts['반차+V'] || 0, amHalf: counts['오전반차'] || 0, pmHalf: counts['오후반차'] || 0, amHalfV: counts['오전반차(V)'] || 0, pmHalfV: counts['오후반차(V)'] || 0 };
   });
+  function cellKey(d: string, name: string) { return `${d}|${name}`; }
   function toggleName(name: string) {
     setSelected(prev => prev.includes(name) ? prev.filter(v => v !== name) : [...prev, name]);
   }
-  function cellKeyOf(d: string, name: string) {
-    return `${d}|${name}`;
-  }
-  function toggleCell(name: string, d: string) {
-    setDate(d);
-    setSelected([name]);
-    const key = cellKeyOf(d, name);
-    setSelectedCells(prev => prev.includes(key) ? prev.filter(v => v !== key) : [...prev, key]);
-  }
-  function clearCellSelection() {
-    setSelectedCells([]);
-  }
   function clickCell(name: string, d: string) {
-    if (isAdmin) {
-      toggleCell(name, d);
-      return;
-    }
+    if (!isAdmin) return;
     setDate(d);
     setSelected([name]);
-    const existing = byKey.get(`${d}|${name}`);
+    const key = cellKey(d, name);
+    setSelectedCells(prev => prev.includes(key) ? prev.filter(v => v !== key) : [...prev, key]);
+    const existing = byKey.get(key);
     if (existing) setType(leaveTypeOf(existing) || '휴무');
   }
-  async function saveSelectedCells() {
-    if (!selectedCells.length) return false;
-    const targets = selectedCells.map(key => {
-      const splitAt = key.indexOf('|');
-      return { date: key.slice(0, splitAt), name: key.slice(splitAt + 1), key };
-    }).filter(t => t.date && t.name);
-    if (!targets.length) return false;
+  async function saveBulk() {
+    const targets = selectedCells.length
+      ? selectedCells.map(k => {
+          const idx = k.indexOf('|');
+          return { targetDate: k.slice(0, idx), name: k.slice(idx + 1) };
+        }).filter(t => t.targetDate && t.name)
+      : selected.map(name => ({ targetDate: date, name }));
 
-    const existingTargets = targets.map(t => ({ ...t, row: byKey.get(`${t.date}|${t.name}`) })).filter(t => !!t.row) as Array<{ date: string, name: string, key: string, row: Row }>;
-    const newTargets = targets.filter(t => !byKey.get(`${t.date}|${t.name}`));
-    const sameTargets = existingTargets.filter(t => (leaveTypeOf(t.row) || '휴무') === type);
-    const updateTargets = existingTargets.filter(t => (leaveTypeOf(t.row) || '휴무') !== type);
+    if (!targets.length) return alert('표에서 날짜칸을 선택하거나 직원과 날짜를 선택하세요.');
 
-    if (sameTargets.length) {
-      const ok = confirm(`선택한 칸 중 이미 같은 휴무(${type})로 등록된 칸이 ${sameTargets.length}개 있습니다.\n\n같은 칸은 건너뛰고 신규/수정만 저장할까요?`);
-      if (!ok) return true;
+    const existingRows = targets
+      .map(t => byKey.get(`${t.targetDate}|${t.name}`))
+      .filter(Boolean) as Row[];
+    const existingSet = new Set(existingRows.map(r => `${dateOnly(val(r, ['날짜','일자','휴무일']))}|${nameOf(r)}`));
+    const newTargets = targets.filter(t => !existingSet.has(`${t.targetDate}|${t.name}`));
+
+    if (existingRows.length) {
+      const preview = existingRows
+        .slice(0, 5)
+        .map(r => `${dateOnly(val(r, ['날짜','일자','휴무일']))} ${nameOf(r)}: ${leaveTypeOf(r) || '휴무'} → ${type}`)
+        .join('\n');
+      const more = existingRows.length > 5 ? `\n외 ${existingRows.length - 5}건` : '';
+      const ok = confirm(`이미 등록된 휴무가 있습니다.\n\n${preview}${more}\n\n기존 휴무를 선택한 종류로 수정할까요?`);
+      if (!ok) return;
     }
 
     setSaving(true);
     try {
       let changed = 0;
-      for (const t of updateTargets) {
-        const current = leaveTypeOf(t.row) || '휴무';
+      for (const r of existingRows) {
+        const current = leaveTypeOf(r) || '휴무';
+        if (current === type) continue;
+        const targetDate = dateOnly(val(r, ['날짜', '일자', '휴무일']));
         const j = await apiPost({
           action: 'updateLeave',
-          row: t.row._row,
+          row: r._row,
           sheetName: '휴무입력',
-          date: t.date,
-          name: t.name,
+          date: targetDate,
+          name: nameOf(r),
           oldType: current,
           type,
-          memo: memo || val(t.row, ['메모', '비고']),
+          memo: memo || val(r, ['메모', '비고']),
         });
-        if (j.ok === false) throw new Error(j.error || `${t.name} / ${t.date} 수정 실패`);
-        onUpdated(t.row, { ...t.row, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: leaveDeltaOf(type), 메모: memo || val(t.row, ['메모', '비고']) });
+        if (j.ok === false) throw new Error(j.error || `${nameOf(r)} 수정 실패`);
+        onUpdated(r, { ...r, 날짜: targetDate, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: leaveDeltaOf(type), 메모: memo || val(r, ['메모', '비고']) });
         changed += 1;
       }
 
       let saved = 0;
       const byDate = new Map<string, string[]>();
       newTargets.forEach(t => {
-        if (!byDate.has(t.date)) byDate.set(t.date, []);
-        byDate.get(t.date)!.push(t.name);
+        if (!byDate.has(t.targetDate)) byDate.set(t.targetDate, []);
+        byDate.get(t.targetDate)!.push(t.name);
       });
       for (const [targetDate, names] of Array.from(byDate.entries())) {
         const j = await apiPost({ action: 'saveLeaveBulk', names, date: targetDate, type, memo, inputMonth: month });
@@ -516,85 +511,10 @@ function Leave({ rows, employees, month, onAdded, onDeleted, onUpdated, isAdmin 
 
       setMemo('');
       setSelectedCells([]);
-      alert(`휴무 일괄 저장 완료: 신규 ${saved}칸 / 수정 ${changed}칸 / 동일 ${sameTargets.length}칸`);
-      return true;
-    } catch (e: any) {
-      alert(String(e?.message || e));
-      return true;
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function saveBulk() {
-    if (await saveSelectedCells()) return;
-    if (!date || selected.length === 0) return alert('날짜와 직원을 선택하세요.');
-
-    const existingRows = selected
-      .map(n => byKey.get(`${date}|${n}`))
-      .filter(Boolean) as Row[];
-    const existingNames = new Set(existingRows.map(r => nameOf(r)));
-    const newNames = selected.filter(n => !existingNames.has(n));
-
-    if (existingRows.length) {
-      const preview = existingRows
-        .slice(0, 5)
-        .map(r => `${nameOf(r)}: ${leaveTypeOf(r) || '휴무'} → ${type}`)
-        .join('\n');
-      const more = existingRows.length > 5 ? `
-외 ${existingRows.length - 5}명` : '';
-      const ok = confirm(`이미 등록된 휴무가 있습니다.
-
-${preview}${more}
-
-기존 휴무를 선택한 종류로 수정할까요?`);
-      if (!ok) return;
-    }
-
-    setSaving(true);
-    try {
-      let changed = 0;
-      for (const r of existingRows) {
-        const current = leaveTypeOf(r) || '휴무';
-        if (current === type) continue;
-        const j = await apiPost({
-          action: 'updateLeave',
-          row: r._row,
-          sheetName: '휴무입력',
-          date: dateOnly(val(r, ['날짜', '일자', '휴무일'])),
-          name: nameOf(r),
-          oldType: current,
-          type,
-          memo: memo || val(r, ['메모', '비고']),
-        });
-        if (j.ok === false) throw new Error(j.error || `${nameOf(r)} 수정 실패`);
-        onUpdated(r, { ...r, 구분: type, 휴무갯수: leaveCountOf(type), 인센티브변동: leaveDeltaOf(type), 메모: memo || val(r, ['메모', '비고']) });
-        changed += 1;
-      }
-
-      let saved = 0;
-      if (newNames.length) {
-        const j = await apiPost({ action: 'saveLeaveBulk', names: newNames, date, type, memo, inputMonth: month });
-        if (j.ok === false) throw new Error(j.error || '휴무 저장 실패');
-        const savedNames: string[] = Array.isArray(j.savedNames) && j.savedNames.length ? j.savedNames : newNames;
-        const added: Row[] = savedNames.map((name: string) => ({
-          _sheet: '휴무입력',
-          입력월: month,
-          날짜: date,
-          이름: name,
-          구분: type,
-          휴무갯수: leaveCountOf(type),
-          인센티브변동: leaveDeltaOf(type),
-          메모: memo,
-          입력자: '홈페이지'
-        }));
-        if (added.length) onAdded(added);
-        saved = savedNames.length;
-      }
-
-      setMemo('');
       if (!changed && !saved) alert('이미 같은 휴무로 등록되어 있습니다.');
       else {
-        alert(`휴무 처리 완료: 신규 ${saved}명 / 수정 ${changed}명`);
+        alert(`휴무 처리 완료: 신규 ${saved}건 / 수정 ${changed}건`);
+        window.location.reload();
       }
     } catch (e: any) {
       alert(String(e?.message || e));
@@ -614,6 +534,7 @@ ${preview}${more}
     });
     if (j.ok === false) return alert(j.error || '삭제 실패');
     onDeleted(r);
+    window.location.reload();
   }
   async function editOne(r: Row) {
     const current = leaveTypeOf(r) || '휴무';
@@ -635,6 +556,7 @@ ${preview}${more}
     if (j.ok === false) return alert(j.error || '수정 실패');
     onUpdated(r, { ...r, 구분: nextType, 휴무갯수: leaveCountOf(nextType), 인센티브변동: leaveDeltaOf(nextType) });
     alert(j.message || '휴무 수정 완료');
+    window.location.reload();
   }
   return <>
     <div className="card">
@@ -643,8 +565,8 @@ ${preview}${more}
         <input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} />
         <select value={type} onChange={e => setType(e.target.value)}>{leaveTypeOptions.map(opt => <option key={opt}>{opt}</option>)}</select>
         <input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} />
-        <button className="btn" onClick={saveBulk} disabled={saving}>{saving ? '저장중' : (selectedCells.length ? `${selectedCells.length}칸 저장` : `${selected.length || 0}명 저장`)}</button>
-        {selectedCells.length > 0 && <button className="btn secondary" onClick={clearCellSelection} disabled={saving}>선택 해제</button>}
+        <button className="btn" onClick={saveBulk} disabled={saving}>{saving ? '저장중' : `${selectedCells.length || selected.length || 0}건 저장`}</button>
+        {!!selectedCells.length && <button className="btn secondary" onClick={() => setSelectedCells([])} disabled={saving}>선택해제</button>}
       </div> : <p className="muted">조회 전용입니다. 휴무 입력/삭제는 관리자 모드에서 가능합니다.</p>}
       {isAdmin && <div className="employee-checks">
         {activeEmployees.map((e, i) => {
@@ -652,7 +574,7 @@ ${preview}${more}
           return <label key={i} className={selected.includes(n) ? 'check active' : 'check'}><input type="checkbox" checked={selected.includes(n)} onChange={() => toggleName(n)} /> {n}</label>;
         })}
       </div>}
-      <div className="legend"><span className="leave-badge work">근무</span><span className="leave-badge off">휴</span><span className="leave-badge v">V</span><span className="leave-badge half">오전반차</span><span className="leave-badge half">오후반차</span><span className="leave-badge v">오전반차(V)</span><span className="leave-badge v">오후반차(V)</span><span className="muted small">관리자 모드: 휴무 종류 선택 → 여러 칸 클릭 → 저장 버튼 한 번</span></div>
+      <div className="legend"><span className="leave-badge work">근무</span><span className="leave-badge off">휴</span><span className="leave-badge v">V</span><span className="leave-badge half">오전반차</span><span className="leave-badge half">오후반차</span><span className="leave-badge v">오전반차(V)</span><span className="leave-badge v">오후반차(V)</span><span className="muted small">칸 클릭 = 선택 / 저장 버튼 = 일괄 저장</span></div>
     </div>
 
     {viewMode === 'table' && <div className="card calendar-wrap">
@@ -664,9 +586,8 @@ ${preview}${more}
             return <tr key={i}><th className="sticky-name emp-name">{n}</th>{days.map(d => {
               const r = byKey.get(`${d}|${n}`);
               const t = leaveTypeOf(r);
-              const cellKey = `${d}|${n}`;
-              const picked = selectedCells.includes(cellKey);
-              return <td key={d} onClick={() => clickCell(n, d)} title={isAdmin ? `${n} / ${d} / 선택: ${type}` : `${n} / ${d}`} className={[r ? 'calendar-cell has-leave' : 'calendar-cell', picked ? 'selected-cell' : ''].filter(Boolean).join(' ')} style={{ cursor: isAdmin ? 'pointer' : 'default', outline: picked ? '3px solid #111827' : undefined, background: picked ? '#fff7ed' : undefined }}><span className={picked ? leaveBadgeClass(type) : leaveBadgeClass(t)}>{picked ? type : (t || '○')}</span></td>;
+              const picked = selectedCells.includes(`${d}|${n}`);
+              return <td key={d} onClick={() => clickCell(n, d)} className={r ? 'calendar-cell has-leave' : 'calendar-cell'} style={picked ? { outline: '3px solid #111827', outlineOffset: '-3px', background: '#fef3c7' } : undefined}><span className={leaveBadgeClass(t)}>{picked ? type : (t || '○')}</span></td>;
             })}</tr>;
           })}
         </tbody>
@@ -682,7 +603,6 @@ ${preview}${more}
     </div>
   </>;
 }
-
 function groupByDate(rows: Row[]) {
   const map = new Map<string, Row[]>();
   rows.forEach(r => {
