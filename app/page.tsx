@@ -151,7 +151,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.0.8 Speed Patch</h1><div className="muted">v1.0.8 Speed Patch / 저장 후 화면 유지 · 속도 개선</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.0.8 Employee Fix</h1><div className="muted">v1.0.8 Employee Fix / 직원등록 · 보건증 · 인센티브 상세 보정</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -277,11 +277,13 @@ function employeeLeaveStats(name: string, leave: Row[], month: string) {
   return { off, am, pm, v, amv, pmv, total };
 }
 function employeeIncentiveHours(name: string, employee: Row, incentives: Row[]) {
-  let hours = Number(val(employee, ['현재누적','누적','인센티브']) || 0) || 0;
+  const targets = new Set([normName(name), ...rowNames(employee)]);
+  let hours = Number(val(employee, ['현재누적','누적','인센티브','잔여']) || 0) || 0;
   incentives.forEach(r => {
-    if (nameOf(r) !== name) return;
-    const current = Number(val(r, ['현재누적','누적','인센티브']) || '');
-    if (!isNaN(current) && current !== 0) hours = current;
+    if (!rowNames(r).some(n => targets.has(n))) return;
+    const currentText = val(r, ['현재누적','누적','인센티브','잔여']);
+    const current = Number(currentText || '');
+    if (!isNaN(current) && currentText !== '') hours = current;
   });
   return hours;
 }
@@ -334,14 +336,53 @@ function EmployeeDetailModal({ employee, leave, health, incentives, month, onClo
   </div>;
 }
 function Employees({ rows, leave, health, incentives, month, onSaved, isAdmin }: { rows: Row[], leave: Row[], health: Row[], incentives: Row[], month: string, onSaved: () => void, isAdmin: boolean }) {
-  const [q, setQ] = useState(''); const [name, setName] = useState(''); const [position, setPosition] = useState(''); const [dept, setDept] = useState(''); const [status, setStatus] = useState('사용가능'); const [saving, setSaving] = useState(false); const [selected, setSelected] = useState<Row | null>(null);
-  const filtered = rows.filter(r => nameOf(r).includes(q) || val(r, ['닉네임','부서','직급','연락처']).includes(q));
-  async function save() { if (!name.trim()) return alert('이름을 입력하세요.'); setSaving(true); const j = await apiPost({ action: 'saveEmployee', name, position, dept, status }); setSaving(false); if (j.ok === false) return alert(j.error || '저장 실패'); setName(''); setPosition(''); setDept(''); onSaved(); }
+  const [q, setQ] = useState('');
+  const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [position, setPosition] = useState('');
+  const [dept, setDept] = useState('');
+  const [status, setStatus] = useState('사용가능');
+  const [phone, setPhone] = useState('');
+  const [healthExpire, setHealthExpire] = useState('');
+  const [memo, setMemo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState<Row | null>(null);
+  const filtered = rows.filter(r => nameOf(r).includes(q) || val(r, ['닉네임','부서','직급','연락처','전화번호','휴대폰','핸드폰']).includes(q));
+  async function save() {
+    if (!name.trim()) return alert('이름을 입력하세요.');
+    setSaving(true);
+    try {
+      const j = await apiPost({ action: 'saveEmployee', name, nickname, position, dept, status, phone, healthExpire, memo });
+      if (j.ok === false) return alert(j.error || '저장 실패');
+      setName(''); setNickname(''); setPosition(''); setDept(''); setStatus('사용가능'); setPhone(''); setHealthExpire(''); setMemo('');
+      alert(j.message || '직원 저장 완료');
+      onSaved();
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }
   return <>
-    <div className="card"><h2>직원 등록</h2>{!isAdmin && <p className="muted">조회 전용입니다. 수정은 관리자 모드에서 가능합니다.</p>}{isAdmin && <div className="row"><input className="input grow" placeholder="이름" value={name} onChange={e => setName(e.target.value)} /><input className="input" placeholder="직급" value={position} onChange={e => setPosition(e.target.value)} /><select value={dept} onChange={e => setDept(e.target.value)}><option value="">부서</option><option>홀</option><option>주방</option></select><select value={status} onChange={e => setStatus(e.target.value)}><option>사용가능</option><option>휴직</option><option>퇴사</option></select><button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '직원 저장'}</button></div>}</div>
+    <div className="card"><h2>직원 등록</h2>{!isAdmin && <p className="muted">조회 전용입니다. 수정은 관리자 모드에서 가능합니다.</p>}{isAdmin && <>
+      <div className="row">
+        <input className="input grow" placeholder="이름" value={name} onChange={e => setName(e.target.value)} />
+        <input className="input" placeholder="닉네임" value={nickname} onChange={e => setNickname(e.target.value)} />
+        <input className="input" placeholder="직급" value={position} onChange={e => setPosition(e.target.value)} />
+        <select value={dept} onChange={e => setDept(e.target.value)}><option value="">부서</option><option>홀</option><option>주방</option></select>
+        <select value={status} onChange={e => setStatus(e.target.value)}><option>사용가능</option><option>휴직</option><option>퇴사</option></select>
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <input className="input" placeholder="연락처" value={phone} onChange={e => setPhone(e.target.value)} />
+        <input className="input" type="date" value={healthExpire} onChange={e => setHealthExpire(e.target.value)} title="보건증 만료일" />
+        <input className="input grow" placeholder="메모" value={memo} onChange={e => setMemo(e.target.value)} />
+        <button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '직원 저장'}</button>
+      </div>
+      <p className="muted small">보건증 날짜를 같이 입력하면 보건증현황에도 함께 저장됩니다.</p>
+    </>}</div>
     <div className="card"><h2>직원 목록</h2><input className="input" placeholder="이름/닉네임/부서/직급/연락처 검색" value={q} onChange={e => setQ(e.target.value)} style={{ marginBottom: 12 }} />
       {!filtered.length && <p className="muted">표시할 직원이 없습니다.</p>}
-      {!!filtered.length && <div style={{ overflowX:'auto' }}><table><thead><tr><th>이름</th><th>닉네임</th><th>직급</th><th>부서</th><th>재직상태</th><th>연락처</th></tr></thead><tbody>{filtered.map((r, i) => <tr key={i} onClick={() => setSelected(r)} style={{ cursor:'pointer' }}><td><b>{nameOf(r)}</b></td><td>{val(r, ['닉네임','별명'])}</td><td>{val(r, ['직급','직책'])}</td><td>{val(r, ['부서','구분'])}</td><td>{val(r, ['상태','재직상태','사용여부'])}</td><td>{val(r, ['연락처','전화번호','휴대폰','핸드폰'])}</td></tr>)}</tbody></table></div>}
+      {!!filtered.length && <div style={{ overflowX:'auto' }}><table><thead><tr><th>이름</th><th>닉네임</th><th>직급</th><th>부서</th><th>재직상태</th><th>연락처</th><th>보건증</th></tr></thead><tbody>{filtered.map((r, i) => <tr key={i} onClick={() => setSelected(r)} style={{ cursor:'pointer' }}><td><b>{nameOf(r)}</b></td><td>{val(r, ['닉네임','별명'])}</td><td>{val(r, ['직급','직책'])}</td><td>{val(r, ['부서','구분'])}</td><td>{val(r, ['상태','재직상태','사용여부'])}</td><td>{val(r, ['연락처','전화번호','휴대폰','핸드폰'])}</td><td>{employeeHealthExpire(nameOf(r), r, health) || dateOnly(val(r, ['보건증만료일','만료일'])) || '-'}</td></tr>)}</tbody></table></div>}
       <p className="muted small">직원 행을 클릭하면 상세정보가 열립니다.</p>
     </div>
     {selected && <EmployeeDetailModal employee={selected} leave={leave} health={health} incentives={incentives} month={month} onClose={() => setSelected(null)} />}
