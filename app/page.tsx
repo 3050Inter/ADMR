@@ -151,7 +151,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.0.8 Stable Batch</h1><div className="muted">v1.0.8 Stable Batch / 저장 유지 · 휴무 일괄 선택</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.0.8 Nav Fix</h1><div className="muted">v1.0.8 Nav Fix / 인센티브 하단 네비게이션 추가</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -172,7 +172,7 @@ export default function Page() {
         ['대시보드', '🏠', '홈'],
         ['직원관리', '👥', '직원'],
         ['휴무관리', '🏖', '휴무'],
-        ['공지사항', '📢', '공지'],
+        ['인센티브', '⏱️', '인센티브'],
         ['시스템', '⚙️', '더보기'],
       ].map(([target, icon, label]) => (
         <button key={target} className={tab === target ? 'active' : ''} onClick={() => goTab(target)}>
