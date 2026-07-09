@@ -1,8 +1,8 @@
-// 안다미로 스시 API - v1.1.0 Stable Recovery
+// 안다미로 스시 API - v1.0.8 Speed Patch
 // 재조회 최소화 + 첫 화면 경량화 + 저장 후 빠른 응답
 
 const MASTER_DB_ID = '1O-v-26uvnmj9B2n1pB98DMl1IV9mB3s-y9w0elcIMqU';
-const API_VERSION = 'v1.1.0-stable-recovery-20260708';
+const API_VERSION = 'v1.1.2-notice-textarea-fix-20260708';
 
 const DB = {
   sheets: {
@@ -84,8 +84,12 @@ function clearDashboardCache(month) {
   ]);
 }
 function employeesCached() {
-  // 직원 목록은 시트 직접 수정이 잦아서 캐시하지 않는다.
-  return employees();
+  const key = cacheKey(['employees']);
+  const cached = cacheGet(key);
+  if (cached) return cached;
+  const rows = employees();
+  cachePut(key, rows, 180);
+  return rows;
 }
 function leaveRowsCached(month) {
   const key = cacheKey(['leave', month]);
@@ -121,9 +125,6 @@ function handle(action, body) {
     if (action === 'updateLeave') return updateLeave(body);
     if (action === 'deleteLeave') return deleteLeave(body);
     if (action === 'saveEmployee') return saveEmployee(body);
-    if (action === 'deleteEmployee') return deleteEmployee(body);
-    if (action === 'repairEmployees') return repairEmployeesPayload();
-    if (action === 'clearCache') { clearDashboardCache(month); cacheRemove([cacheKey(['employees']), cacheKey(['health']), cacheKey(['leave', month]), cacheKey(['incentives', month]), cacheKey(['all', month])]); return { ok: true, message: '캐시 삭제 완료' }; }
     if (action === 'saveHealth') return saveHealth(body);
     if (action === 'manualAdjust') return manualAdjust(body);
     if (action === 'saveNotice') return saveNotice(body);
@@ -131,6 +132,7 @@ function handle(action, body) {
     if (action === 'backupMaster') return backupMaster(body);
     if (action === 'closeMonth') return closeMonth(body);
     if (action === 'syncWorkIncentives') return syncWorkIncentives(month);
+    if (action === 'repairWorkIncentives') return syncWorkIncentives(month);
     return dashboardPayload(month);
   } catch (err) {
     return { ok: false, error: String(err && err.message ? err.message : err), stack: String(err && err.stack ? err.stack : '') };
@@ -198,6 +200,9 @@ function isActiveEmployee(r) {
   return status.indexOf('퇴사') === -1 && status.indexOf('제외') === -1 && status.indexOf('비활성') === -1;
 }
 
+function employees() {
+  return tableRows(DB.sheets.employees, ['이름', '현재누적', '상태', '직급', '부서']).filter(function(r) { return nameOf(r) !== ''; });
+}
 function leaveInputLayout() {
   const s = sheet(DB.sheets.leave);
   if (!s) return null;
@@ -623,6 +628,61 @@ function deleteLeave(body) {
   clearDashboardCache(date.slice(0, 7));
   return { ok: true, message: '휴무 삭제 완료', restoreDelta: restoreDelta, deletedType: deletedType };
 }
+function saveEmployee(body) {
+  const name = clean(body.name);
+  if (!name) return { ok: false, error: '이름을 입력하세요.' };
+  const nickname = clean(body.nickname || body.nick || '');
+  const position = clean(body.position || body.job || body.role || '');
+  const dept = clean(body.dept || body.department || '');
+  const status = clean(body.status || '사용가능');
+  const phone = clean(body.phone || body.tel || body.contact || '');
+  const healthExpire = clean(body.healthExpire || body.expire || body.expireDate || '');
+  const hireDate = dateKey(body.hireDate || body.startDate || body.joinDate || body.inputDate || todayKey()) || todayKey();
+  const memo = clean(body.memo || '홈페이지 입력');
+  const now = nowKst();
+
+  // 1) 원래 신규입사_입력 로그도 남긴다.
+  const inputSheet = ensureSheet(DB.sheets.newEmployee, ['입력일', '입사일', '이름', '닉네임', '직급', '부서', '상태', '연락처', '보건증만료일', '메모', '입력시간']);
+  appendByHeader(inputSheet, { '입력일': todayKey(), '입사일': hireDate, '이름': name, '닉네임': nickname, '직급': position, '부서': dept, '상태': status, '연락처': phone, '보건증만료일': healthExpire, '메모': memo, '입력시간': now });
+
+  // 2) 홈페이지 직원 목록이 바로 갱신되도록 직원관리 시트에도 직접 등록/갱신한다.
+  const empSheet = ensureSheet(DB.sheets.employees, ['이름', '입사일', '닉네임', '직급', '부서', '상태', '연락처', '보건증만료일', '현재누적', '메모', '입력시간']);
+  ensureColumns(empSheet, ['이름', '입사일', '닉네임', '직급', '부서', '상태', '연락처', '보건증만료일', '현재누적', '메모', '입력시간', '수정시간']);
+  const headers = empSheet.getRange(1, 1, 1, Math.max(empSheet.getLastColumn(), 1)).getValues()[0].map(clean);
+  const col = function(h){ return headers.indexOf(h) + 1; };
+  const nameCol = col('이름');
+  let targetRow = 0;
+  for (let r = 2; r <= empSheet.getLastRow(); r++) {
+    if (clean(empSheet.getRange(r, nameCol).getValue()) === name) { targetRow = r; break; }
+  }
+  const values = {
+    '이름': name,
+    '입사일': hireDate,
+    '닉네임': nickname,
+    '직급': position,
+    '부서': dept,
+    '상태': status,
+    '연락처': phone,
+    '보건증만료일': healthExpire,
+    '메모': memo,
+    '수정시간': now
+  };
+  if (targetRow) {
+    Object.keys(values).forEach(function(h){ const c = col(h); if (c && values[h] !== '') empSheet.getRange(targetRow, c).setValue(values[h]); });
+  } else {
+    appendByHeader(empSheet, Object.assign({ '현재누적': 0, '입력시간': now }, values));
+  }
+
+  // 3) 보건증 만료일을 같이 입력한 경우 보건증현황도 바로 갱신한다.
+  if (healthExpire) {
+    saveHealth({ name: name, expire: healthExpire, memo: '직원 등록 시 입력' });
+  }
+
+  logHomepage('saveEmployee', name);
+  clearDashboardCache(thisMonth());
+  cacheRemove([cacheKey(['employees']), cacheKey(['health'])]);
+  return { ok: true, message: targetRow ? '직원 정보 갱신 완료' : '직원 등록 완료' };
+}
 function saveHealth(body) {
   const name = clean(body.name);
   const expire = clean(body.expire || body.expireDate || body.date);
@@ -758,6 +818,78 @@ function existingAutoIncentiveKeys() {
   });
   return map;
 }
+function employeeStartMap_(month) {
+  const monthStart = (clean(month) || thisMonth()) + '-01';
+  const map = {};
+  employees().filter(isActiveEmployee).forEach(function(e) {
+    const n = nameOf(e);
+    if (!n) return;
+    const raw = e['입사일'] || e['입사일자'] || e['근무시작일'] || e['시작일'] || e['등록일'] || e['입력일'] || e['입력시간'];
+    const d = dateKey(raw);
+    map[n] = d && /^20\d{2}-\d{2}-\d{2}$/.test(d) ? d : monthStart;
+  });
+  return map;
+}
+function isWeekendHolidayWorkDate_(date, holidays) {
+  const dt = new Date(date + 'T00:00:00');
+  if (isNaN(dt.getTime())) return false;
+  const day = dt.getDay();
+  return day === 6 || day === 0 || !!holidays[date];
+}
+function workReason_(date, holidays) {
+  const dt = new Date(date + 'T00:00:00');
+  const day = dt.getDay();
+  if (holidays[date]) return '공휴일근무';
+  if (day === 6) return '토요일근무';
+  if (day === 0) return '일요일근무';
+  return '';
+}
+function cleanupInvalidAutoWorkIncentives_(month, holidays, offMap, startMap) {
+  const s = ensureSheet(DB.sheets.incentiveLog, ['날짜', '이름', '구분', '시간', '메모', '입력자', '입력시간']);
+  const lastRow = s.getLastRow();
+  if (lastRow < 2) return { removed: 0, existing: {} };
+  const values = s.getRange(1, 1, lastRow, Math.max(s.getLastColumn(), 7)).getValues();
+  const headers = values[0].map(clean);
+  const idx = function(hs){ for (let i=0;i<hs.length;i++){ const p=headers.indexOf(hs[i]); if(p!==-1) return p; } return -1; };
+  const dateIdx = idx(['날짜','일자']);
+  const nameIdx = idx(['이름','직원명','성명']);
+  const memoIdx = idx(['메모','비고','내용']);
+  const typeIdx = idx(['구분','사유']);
+  const today = todayKey();
+  const existing = {};
+  const seen = {};
+  const removeRows = [];
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const memo = memoIdx >= 0 ? clean(row[memoIdx]) : '';
+    const type = typeIdx >= 0 ? clean(row[typeIdx]) : '';
+    const isAuto = memo.indexOf('AUTO_WORK_INC:') !== -1;
+    if (!isAuto) continue;
+    let key = '';
+    const m = memo.match(/AUTO_WORK_INC:([^\s]+)/);
+    if (m) key = m[1];
+    let date = dateIdx >= 0 ? dateKey(row[dateIdx]) : '';
+    let name = nameIdx >= 0 ? clean(row[nameIdx]) : '';
+    if (key && key.indexOf('|') !== -1) {
+      const parts = key.split('|');
+      date = parts[0] || date;
+      name = parts.slice(1).join('|') || name;
+    }
+    if (!date || !name) { removeRows.push(r + 1); continue; }
+    const start = startMap[name] || ((clean(month) || thisMonth()) + '-01');
+    const valid = date.slice(0,7) === month && date <= today && date >= start && isWeekendHolidayWorkDate_(date, holidays) && !offMap[date + '|' + name];
+    const k = date + '|' + name;
+    if (!valid || seen[k]) {
+      removeRows.push(r + 1);
+    } else {
+      existing[k] = true;
+      seen[k] = true;
+    }
+  }
+  for (let i = removeRows.length - 1; i >= 0; i--) s.deleteRow(removeRows[i]);
+  return { removed: removeRows.length, existing: existing };
+}
 function syncWorkIncentives(month) {
   month = clean(month) || thisMonth();
   const lock = LockService.getScriptLock();
@@ -765,30 +897,33 @@ function syncWorkIncentives(month) {
   try {
     const holidays = getHolidayMap();
     const offMap = getLeaveOffMap(month);
-    const existing = existingAutoIncentiveKeys();
+    const startMap = employeeStartMap_(month);
+    const cleanup = cleanupInvalidAutoWorkIncentives_(month, holidays, offMap, startMap);
+    const existing = cleanup.existing || {};
     const active = employees().filter(isActiveEmployee).map(nameOf).filter(Boolean);
     const logSheet = ensureSheet(DB.sheets.incentiveLog, ['날짜', '이름', '구분', '시간', '메모', '입력자', '입력시간']);
     let added = 0;
     const preview = [];
+    const today = todayKey();
     dateRangeOfMonth(month).forEach(function(dt) {
       const date = Utilities.formatDate(dt, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      const day = dt.getDay();
-      const isSat = day === 6;
-      const isSun = day === 0;
-      const isHoliday = !!holidays[date];
-      if (!isSat && !isSun && !isHoliday) return;
-      const reason = isHoliday ? '공휴일근무' : (isSat ? '토요일근무' : '일요일근무');
+      if (date > today) return; // 미래 날짜는 아직 근무 확정 전이므로 적립하지 않는다.
+      if (!isWeekendHolidayWorkDate_(date, holidays)) return;
+      const reason = workReason_(date, holidays);
       active.forEach(function(name) {
+        const start = startMap[name] || (month + '-01');
+        if (date < start) return; // 입사일/등록일 이전 날짜는 적립 제외.
         if (offMap[date + '|' + name]) return;
         const key = date + '|' + name;
-        preview.push({ 날짜: date, 이름: name, 구분: reason, 시간: 1, 공휴일: holidays[date] || '' });
+        preview.push({ 날짜: date, 이름: name, 구분: reason, 시간: 1, 입사일: start, 공휴일: holidays[date] || '' });
         if (existing[key]) return;
         logSheet.appendRow([date, name, reason, 1, 'AUTO_WORK_INC:' + key + ' 토/일/공휴일 근무 자동 적립', '홈페이지', nowKst()]);
         existing[key] = true;
         added++;
       });
     });
-    return { ok: true, month: month, added: added, previewCount: preview.length, preview: preview.slice(0, 200), rule: '토요일/일요일/공휴일 근무 +1시간' };
+    cacheRemove([cacheKey(['incentives', month]), cacheKey(['all', month]), cacheKey(['dashboard', month, todayKey()])]);
+    return { ok: true, month: month, added: added, removed: cleanup.removed || 0, previewCount: preview.length, preview: preview.slice(0, 200), rule: '입사일 이후 + 오늘까지의 토요일/일요일/공휴일 근무 +1시간' };
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }
@@ -872,7 +1007,7 @@ function repairBadEmployeeRows_() {
     const realName = clean(values[r][realNameIdx]);
     if (!badName || realName || existing[badName]) continue;
     const obj = { '이름': badName };
-    ['닉네임','직급','부서','상태','연락처','보건증만료일','메모','입력시간','수정시간','현재누적'].forEach(function(h) {
+    ['입사일','닉네임','직급','부서','상태','연락처','보건증만료일','메모','입력시간','수정시간','현재누적'].forEach(function(h) {
       const idx = topHeaders.indexOf(h);
       if (idx !== -1 && clean(values[r][idx]) !== '') obj[h] = values[r][idx];
     });
@@ -886,6 +1021,7 @@ function repairBadEmployeeRows_() {
 function employees() {
   const s = sheet(DB.sheets.employees);
   if (!s) return [];
+  try { repairBadEmployeeRows_(); } catch (e) {}
   const info = findEmployeeHeaderInfo_();
   if (!info) return tableRows(DB.sheets.employees, ['이름', '현재누적', '상태', '직급', '부서']).filter(function(r) { return nameOf(r) !== ''; });
   const values = s.getDataRange().getValues();
@@ -914,19 +1050,21 @@ function saveEmployee(body) {
   const status = clean(body.status || '사용가능');
   const phone = clean(body.phone || body.tel || body.contact || '');
   const healthExpire = clean(body.healthExpire || body.expire || body.expireDate || '');
+  const hireDate = dateKey(body.hireDate || body.startDate || body.joinDate || body.inputDate || todayKey()) || todayKey();
   const memo = clean(body.memo || '홈페이지 입력');
   const now = nowKst();
 
-  const inputSheet = ensureSheet(DB.sheets.newEmployee, ['입력일', '이름', '닉네임', '직급', '부서', '상태', '연락처', '보건증만료일', '메모', '입력시간']);
-  appendByHeader(inputSheet, { '입력일': todayKey(), '이름': name, '닉네임': nickname, '직급': position, '부서': dept, '상태': status, '연락처': phone, '보건증만료일': healthExpire, '메모': memo, '입력시간': now });
+  const inputSheet = ensureSheet(DB.sheets.newEmployee, ['입력일', '입사일', '이름', '닉네임', '직급', '부서', '상태', '연락처', '보건증만료일', '메모', '입력시간']);
+  appendByHeader(inputSheet, { '입력일': todayKey(), '입사일': hireDate, '이름': name, '닉네임': nickname, '직급': position, '부서': dept, '상태': status, '연락처': phone, '보건증만료일': healthExpire, '메모': memo, '입력시간': now });
 
-  const empSheet = sheet(DB.sheets.employees) || ensureSheet(DB.sheets.employees, ['이름', '닉네임', '직급', '부서', '상태', '연락처', '보건증만료일', '현재누적', '메모', '입력시간']);
+  const empSheet = sheet(DB.sheets.employees) || ensureSheet(DB.sheets.employees, ['이름', '입사일', '닉네임', '직급', '부서', '상태', '연락처', '보건증만료일', '현재누적', '메모', '입력시간']);
+  try { repairBadEmployeeRows_(); } catch (e) {}
   let info = findEmployeeHeaderInfo_();
   if (!info) {
     info = { sheet: empSheet, headerRow: 1, headerIndex: 0, nameCol: 1, headers: ['이름'], values: empSheet.getDataRange().getValues() };
     ensureHeaderColumnAtRow_(empSheet, 1, '이름');
   }
-  ['이름','닉네임','직급','부서','상태','연락처','보건증만료일','현재누적','메모','입력시간','수정시간'].forEach(function(h){ ensureHeaderColumnAtRow_(empSheet, info.headerRow, h); });
+  ['이름','입사일','닉네임','직급','부서','상태','연락처','보건증만료일','현재누적','메모','입력시간','수정시간'].forEach(function(h){ ensureHeaderColumnAtRow_(empSheet, info.headerRow, h); });
   const values = empSheet.getDataRange().getValues();
   const headers = empSheet.getRange(info.headerRow, 1, 1, Math.max(empSheet.getLastColumn(), 1)).getValues()[0].map(clean);
   const nameIdx = Math.max(headers.indexOf('이름'), headers.indexOf('직원명'), headers.indexOf('성명'));
@@ -936,6 +1074,7 @@ function saveEmployee(body) {
   }
   const obj = {
     '이름': name,
+    '입사일': hireDate,
     '닉네임': nickname,
     '직급': position,
     '부서': dept,
@@ -956,47 +1095,4 @@ function saveEmployee(body) {
   cacheRemove([cacheKey(['employees']), cacheKey(['health'])]);
   clearDashboardCache(thisMonth());
   return { ok: true, message: targetRow ? '직원 정보 갱신 완료' : '직원 등록 완료' };
-}
-
-
-function deleteEmployee(body) {
-  const row = Number(body.row || 0);
-  const name = clean(body.name);
-  const s = sheet(DB.sheets.employees);
-  if (!s) return { ok: false, error: '직원관리 시트를 찾을 수 없습니다.' };
-  const info = findEmployeeHeaderInfo_();
-  if (!info) return { ok: false, error: '직원관리 헤더를 찾을 수 없습니다.' };
-  if (row && row > info.headerRow && row <= s.getLastRow()) {
-    const rowValues = s.getRange(row, 1, 1, Math.max(s.getLastColumn(), 1)).getValues()[0];
-    const rowName = clean(rowValues[info.nameCol - 1]);
-    if (name && rowName && rowName !== name) return { ok: false, error: '삭제 대상 이름이 일치하지 않습니다.' };
-    s.deleteRow(row);
-    logHomepage('deleteEmployee', (name || rowName) + ' / row ' + row);
-    cacheRemove([cacheKey(['employees']), cacheKey(['health'])]);
-    clearDashboardCache(thisMonth());
-    return { ok: true, message: '직원 삭제 완료', deletedName: name || rowName, row: row };
-  }
-  if (!name) return { ok: false, error: '삭제할 직원 정보가 없습니다.' };
-  const values = s.getDataRange().getValues();
-  for (let r = info.headerIndex + 1; r < values.length; r++) {
-    if (clean(values[r][info.nameCol - 1]) === name) {
-      s.deleteRow(r + 1);
-      logHomepage('deleteEmployee', name + ' / row ' + (r + 1));
-      cacheRemove([cacheKey(['employees']), cacheKey(['health'])]);
-      clearDashboardCache(thisMonth());
-      return { ok: true, message: '직원 삭제 완료', deletedName: name, row: r + 1 };
-    }
-  }
-  return { ok: false, error: '삭제할 직원을 찾지 못했습니다.' };
-}
-
-function repairEmployeesPayload() {
-  try {
-    repairBadEmployeeRows_();
-    cacheRemove([cacheKey(['employees'])]);
-    clearDashboardCache(thisMonth());
-    return { ok: true, message: '직원 데이터 복구 검사 완료' };
-  } catch (e) {
-    return { ok: false, error: String(e && e.message ? e.message : e) };
-  }
 }
