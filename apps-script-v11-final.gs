@@ -2,7 +2,7 @@
 // 재조회 최소화 + 첫 화면 경량화 + 저장 후 빠른 응답
 
 const MASTER_DB_ID = '1O-v-26uvnmj9B2n1pB98DMl1IV9mB3s-y9w0elcIMqU';
-const API_VERSION = 'v1.1.2-notice-textarea-fix-20260708';
+const API_VERSION = 'v1.1.3-notice-editor-20260709';
 
 const DB = {
   sheets: {
@@ -128,6 +128,7 @@ function handle(action, body) {
     if (action === 'saveHealth') return saveHealth(body);
     if (action === 'manualAdjust') return manualAdjust(body);
     if (action === 'saveNotice') return saveNotice(body);
+    if (action === 'updateNotice') return updateNotice(body);
     if (action === 'deleteNotice') return deleteNotice(body);
     if (action === 'backupMaster') return backupMaster(body);
     if (action === 'closeMonth') return closeMonth(body);
@@ -748,6 +749,30 @@ function saveNotice(body) {
   appendByHeader(s, { '작성일': todayKey(), '제목': title, '내용': content, '작성자': author, '입력시간': nowKst() });
   logHomepage('saveNotice', title);
   return { ok: true, message: '공지 저장 완료' };
+}
+
+function updateNotice(body) {
+  const row = Number(body.row || 0);
+  const sheetName = clean(body.sheetName || DB.sheets.notices);
+  const title = clean(body.title);
+  const content = clean(body.content);
+  const author = clean(body.author || '관리자');
+  if (sheetName !== DB.sheets.notices) return { ok: false, error: '공지사항 시트 자료만 수정할 수 있습니다.' };
+  if (!row || row < 2) return { ok: false, error: '수정할 행 정보가 없습니다.' };
+  if (!title) return { ok: false, error: '제목을 입력하세요.' };
+  if (!content) return { ok: false, error: '내용을 입력하세요.' };
+  const s = sheet(DB.sheets.notices);
+  if (!s) return { ok: false, error: '공지사항 시트를 찾을 수 없습니다.' };
+  if (row > s.getLastRow()) return { ok: false, error: '수정할 행이 시트 범위를 벗어났습니다.' };
+  ensureColumns(s, ['작성일', '제목', '내용', '작성자', '입력시간', '수정시간']);
+  const headers = s.getRange(1, 1, 1, Math.max(s.getLastColumn(), 1)).getValues()[0].map(clean);
+  const set = function(h, v) { const c = headers.indexOf(h) + 1; if (c) s.getRange(row, c).setValue(v); };
+  set('제목', title);
+  set('내용', content);
+  set('작성자', author);
+  set('수정시간', nowKst());
+  logHomepage('updateNotice', title);
+  return { ok: true, message: '공지 수정 완료' };
 }
 function deleteNotice(body) {
   const row = Number(body.row || 0);

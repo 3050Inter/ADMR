@@ -242,6 +242,13 @@ export default function Page() {
         .notice-row { flex-direction: column; align-items: stretch !important; }
         .modal, .sheet, .popup { max-width: calc(100vw - 24px) !important; }
       }
+
+      .notice-content p { margin: 8px 0; }
+      .notice-table-wrap { overflow-x: auto; margin: 10px 0; }
+      .notice-table { width: 100%; border-collapse: collapse; background: white; }
+      .notice-table th, .notice-table td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }
+      .notice-table th { background: #f3f4f6; font-weight: 800; }
+      .notice-content.compact .notice-table th, .notice-content.compact .notice-table td { padding: 5px 7px; font-size: 12px; }
     `}</style>
   </main>;
 }
@@ -252,7 +259,7 @@ function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices 
   return <>
     <div className="notice-hero card">
       <div className="top"><h2>📢 공지사항</h2><span className="muted small">최근 5건</span></div>
-      {notices?.slice(0, 5).map((n: Row, i: number) => <div key={i} className="notice-mini"><b>{val(n, ['제목']) || '제목 없음'}</b><p>{val(n, ['내용'])}</p></div>)}
+      {notices?.slice(0, 5).map((n: Row, i: number) => <div key={i} className="notice-mini"><b>{val(n, ['제목']) || '제목 없음'}</b><NoticeContent content={val(n, ['내용'])} compact /></div>)}
       {!notices?.length && <p className="muted">등록된 공지가 없습니다.</p>}
     </div>
     <div className="grid2">
@@ -805,47 +812,106 @@ function Health({ rows, employees, onSaved, isAdmin }: { rows: Row[], employees:
     <div className="card"><h2>보건증 만료 현황</h2>{!sorted.length && <p className="muted">보건증 데이터가 없습니다.</p>}{sorted.map((r, i) => { const exp = val(r, ['만료일','보건증만료일','보건증 만료일','날짜']); const st = healthStatus(dday(exp)); return <div key={i} className="health-row"><b>{nameOf(r) || val(r, ['이름','직원명'])}</b><span>{dateOnly(exp) || '-'}</span><span className={`status ${st.cls}`}>{st.text}</span></div>; })}</div>
   </>;
 }
+function isMarkdownTableBlock(lines: string[]) {
+  if (lines.length < 2) return false;
+  const first = lines[0].trim();
+  const second = lines[1].trim();
+  return first.includes('|') && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(second);
+}
+function parseTableLine(line: string) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(v => v.trim());
+}
+function NoticeContent({ content, compact = false }: { content: string, compact?: boolean }) {
+  const lines = String(content || '').split('\n');
+  const blocks: any[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (isMarkdownTableBlock(lines.slice(i, i + 2))) {
+      const tableLines = [lines[i], lines[i + 1]];
+      i += 2;
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+        tableLines.push(lines[i]);
+        i += 1;
+      }
+      blocks.push({ type: 'table', lines: tableLines });
+      continue;
+    }
+    const textLines: string[] = [];
+    while (i < lines.length && !isMarkdownTableBlock(lines.slice(i, i + 2))) {
+      textLines.push(lines[i]);
+      i += 1;
+    }
+    blocks.push({ type: 'text', text: textLines.join('\n') });
+  }
+  return <div className={compact ? 'notice-content compact' : 'notice-content'}>
+    {blocks.map((b, idx) => {
+      if (b.type === 'table') {
+        const headers = parseTableLine(b.lines[0]);
+        const body = b.lines.slice(2).map(parseTableLine);
+        return <div key={idx} className="notice-table-wrap"><table className="notice-table"><thead><tr>{headers.map((h: string, i: number) => <th key={i}>{h}</th>)}</tr></thead><tbody>{body.map((row: string[], rIdx: number) => <tr key={rIdx}>{headers.map((_: string, cIdx: number) => <td key={cIdx}>{row[cIdx] || ''}</td>)}</tr>)}</tbody></table></div>;
+      }
+      return b.text.trim() ? <p key={idx} style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{b.text}</p> : null;
+    })}
+  </div>;
+}
 function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, isAdmin: boolean }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
+  function insertTable() {
+    const table = `\n| 날짜 | 내용 | 담당 |\n|---|---|---|\n| 7/10 | 보건증 확인 | 관리자 |\n| 7/15 | 휴무표 마감 | 전체 |\n`;
+    setContent(prev => (prev ? prev + '\n' : '') + table);
+  }
+  function cancelEdit() {
+    setEditing(null);
+    setTitle('');
+    setContent('');
+  }
+  function startEdit(r: Row) {
+    setEditing(r);
+    setTitle(val(r, ['제목']));
+    setContent(val(r, ['내용']));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   async function save() {
     if (!title.trim() || !content.trim()) return alert('제목과 내용을 입력하세요.');
     setSaving(true);
-    const j = await apiPost({ action: 'saveNotice', title, content, author: '관리자' });
+    const body: Row = editing?._row
+      ? { action: 'updateNotice', row: editing._row, sheetName: editing._sheet || '공지사항', title, content, author: '관리자' }
+      : { action: 'saveNotice', title, content, author: '관리자' };
+    const j = await apiPost(body);
     setSaving(false);
     if (j.ok === false) return alert(j.error || '저장 실패');
-    setTitle('');
-    setContent('');
+    cancelEdit();
     onSaved();
   }
   async function remove(r: Row) {
     if (!confirm('공지사항을 삭제할까요?')) return;
     const j = await apiPost({ action: 'deleteNotice', row: r._row, sheetName: r._sheet || '공지사항' });
     if (j.ok === false) return alert(j.error || '삭제 실패');
+    if (editing?._row === r._row) cancelEdit();
     onSaved();
   }
   return <>
     <div className="card">
-      <h2>공지 작성</h2>
-      {!isAdmin && <p className="muted">조회 전용입니다. 공지 작성/삭제는 관리자 모드에서 가능합니다.</p>}
+      <div className="top"><h2>{editing ? '공지 수정' : '공지 작성'}</h2>{editing && <button className="btn secondary" onClick={cancelEdit}>수정 취소</button>}</div>
+      {!isAdmin && <p className="muted">조회 전용입니다. 공지 작성/수정/삭제는 관리자 모드에서 가능합니다.</p>}
       {isAdmin && <div style={{ display: 'grid', gap: 10 }}>
         <input className="input" placeholder="제목" value={title} onChange={e => setTitle(e.target.value)} />
+        <div className="row"><button type="button" className="btn secondary" onClick={insertTable}>표 삽입</button><span className="muted small">표는 엑셀처럼 | 로 구분해서 표시됩니다.</span></div>
         <textarea
           className="input"
-          placeholder={`공지 내용을 여러 줄로 입력하세요.
-
-예)
-1. 휴무표 확인
-2. 보건증 만료자 확인`}
+          placeholder={`공지 내용을 입력하세요.\n\n표 예시:\n| 날짜 | 내용 | 담당 |\n|---|---|---|\n| 7/10 | 보건증 확인 | 관리자 |`}
           value={content}
           onChange={e => setContent(e.target.value)}
-          rows={8}
-          style={{ minHeight: 180, resize: 'vertical', lineHeight: 1.55 }}
+          rows={10}
+          style={{ minHeight: 220, resize: 'vertical', lineHeight: 1.55, fontFamily: 'inherit' }}
         />
+        <div className="card" style={{ background: '#f9fafb' }}><b>미리보기</b><NoticeContent content={content || '내용을 입력하면 여기에 미리보기가 표시됩니다.'} /></div>
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <span className="muted small">줄바꿈 그대로 저장됩니다.</span>
-          <button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : '공지 저장'}</button>
+          <span className="muted small">줄바꿈과 표가 그대로 표시됩니다.</span>
+          <button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : (editing ? '공지 수정 저장' : '공지 저장')}</button>
         </div>
       </div>}
     </div>
@@ -853,12 +919,12 @@ function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, 
       <h2>공지사항</h2>
       {!rows.length && <p className="muted">공지 없음</p>}
       {rows.map((r, i) => <div key={i} className="notice-row">
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <b>{val(r, ['제목'])}</b>
-          <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{val(r, ['내용'])}</p>
+          <NoticeContent content={val(r, ['내용'])} />
           <span className="muted small">{dateOnly(val(r, ['작성일','입력시간']))}</span>
         </div>
-        {isAdmin && r._row && <button className="btn secondary" onClick={() => remove(r)}>삭제</button>}
+        {isAdmin && r._row && <div className="row"><button className="btn secondary" onClick={() => startEdit(r)}>수정</button><button className="btn secondary" onClick={() => remove(r)}>삭제</button></div>}
       </div>)}
     </div>
   </>;
