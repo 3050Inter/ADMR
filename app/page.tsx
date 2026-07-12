@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type Row = Record<string, any>;
-const tabs = ['대시보드', '직원관리', '휴무관리', '근무인원', '보건증', '인센티브', '공지사항', '운영통계', '시스템', '연결확인'];
-const ADMIN_PASSWORD = '8654';
-const ADMIN_STORAGE_KEY = 'andamiro_admin_until';
+const viewTabs = ['대시보드', '직원관리', '휴무관리', '근무인원', '보건증', '인센티브', '공지사항', '운영통계', '시스템'];
 
 function val(r: Row, keys: string[]) {
   for (const k of keys) {
@@ -41,7 +39,9 @@ async function apiGet(action = 'all', params: Row = {}) {
   url.searchParams.set('action', action);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   const res = await fetch(url.toString(), { cache: 'no-store' });
-  return res.json();
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || '요청에 실패했습니다.');
+  return json;
 }
 async function apiPost(body: Row) {
   const res = await fetch('/api/masterdb', {
@@ -49,7 +49,9 @@ async function apiPost(body: Row) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || '요청에 실패했습니다.');
+  return json;
 }
 
 export default function Page() {
@@ -60,23 +62,34 @@ export default function Page() {
   const [month, setMonth] = useState(localMonthKey());
   const [loaded, setLoaded] = useState<Record<string, boolean>>({});
   const [isAdmin, setIsAdmin] = useState(false);
+  const tabs = isAdmin ? [...viewTabs, '연결확인'] : viewTabs;
   useEffect(() => {
-    try {
-      const until = Number(localStorage.getItem(ADMIN_STORAGE_KEY) || '0');
-      setIsAdmin(until > Date.now());
-    } catch (e) {}
+    fetch('/api/admin', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(j => setIsAdmin(Boolean(j.isAdmin)))
+      .catch(() => setIsAdmin(false));
   }, []);
-  function unlockAdmin() {
+  async function unlockAdmin() {
     const pw = window.prompt('관리자 비밀번호를 입력하세요.');
-    if (pw !== ADMIN_PASSWORD) return alert('비밀번호가 맞지 않습니다.');
-    const until = Date.now() + 1000 * 60 * 60 * 24 * 30;
-    localStorage.setItem(ADMIN_STORAGE_KEY, String(until));
+    if (!pw) return;
+    const res = await fetch('/api/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const j = await res.json();
+    if (!res.ok) return alert(j.error || '로그인에 실패했습니다.');
     setIsAdmin(true);
-    alert('관리자 모드가 활성화되었습니다.');
+    setLoaded({});
+    alert('관리자 로그인이 완료되었습니다.');
   }
-  function lockAdmin() {
-    localStorage.removeItem(ADMIN_STORAGE_KEY);
+  async function lockAdmin() {
+    await fetch('/api/admin', { method: 'DELETE' });
     setIsAdmin(false);
+    setTab('대시보드');
+    setData({});
+    setLoaded({});
+    loadDashboard();
   }
   async function loadAction(action = 'dashboard') {
     setLoading(true); setErr('');
@@ -151,7 +164,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.1.2 Notice Fix</h1><div className="muted">v1.1.2 / 공지사항 긴 글 입력 · 줄바꿈 보존</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 직원관리</h1><div className="muted">근무·휴무·보건증·인센티브 통합 관리</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 로그아웃' : '🔒 관리자 로그인'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -165,7 +178,7 @@ export default function Page() {
       {tab === '공지사항' && <Notice rows={notices} onSaved={() => loadAction('notices')} isAdmin={isAdmin} />}
       {tab === '운영통계' && <Operations data={data} employees={employees} leave={leave} incentives={incentives} health={health} month={month} />}
       {tab === '시스템' && <SystemTools data={data} month={month} onSaved={loadFull} isAdmin={isAdmin} />}
-      {tab === '연결확인' && <Debug data={data} />}
+      {isAdmin && tab === '연결확인' && <Debug data={data} />}
     </>}
     <div className="mobile-bottom-nav">
       {[
