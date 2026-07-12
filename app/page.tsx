@@ -834,6 +834,20 @@ function isMarkdownTableBlock(lines: string[]) {
 function parseTableLine(line: string) {
   return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(v => v.trim());
 }
+function sheetPasteToMarkdown(text: string) {
+  const rows = text.replace(/\r\n?/g, '\n').split('\n')
+    .map(line => line.split('\t').map(cell => cell.trim()))
+    .filter(row => row.some(Boolean));
+  const width = Math.max(0, ...rows.map(row => row.length));
+  if (width < 2) return text;
+  const escapeCell = (cell = '') => cell.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
+  const normalized = rows.map(row => Array.from({ length: width }, (_, i) => escapeCell(row[i] || '')));
+  return [
+    `| ${normalized[0].join(' | ')} |`,
+    `| ${Array(width).fill('---').join(' | ')} |`,
+    ...normalized.slice(1).map(row => `| ${row.join(' | ')} |`),
+  ].join('\n');
+}
 function NoticeContent({ content, compact = false }: { content: string, compact?: boolean }) {
   const lines = String(content || '').split('\n');
   const blocks: any[] = [];
@@ -876,6 +890,16 @@ function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, 
     const table = `\n| 날짜 | 내용 | 담당 |\n|---|---|---|\n| 7/10 | 보건증 확인 | 관리자 |\n| 7/15 | 휴무표 마감 | 전체 |\n`;
     setContent(prev => (prev ? prev + '\n' : '') + table);
   }
+  function pasteSheet(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const pasted = e.clipboardData.getData('text/plain');
+    if (!pasted.includes('\t')) return;
+    e.preventDefault();
+    const target = e.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const table = sheetPasteToMarkdown(pasted);
+    setContent(prev => `${prev.slice(0, start)}${table}${prev.slice(end)}`);
+  }
   function cancelEdit() {
     setEditing(null);
     setTitle('');
@@ -912,18 +936,19 @@ function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, 
       {!isAdmin && <p className="muted">조회 전용입니다. 공지 작성/수정/삭제는 관리자 모드에서 가능합니다.</p>}
       {isAdmin && <div style={{ display: 'grid', gap: 10 }}>
         <input className="input" placeholder="제목" value={title} onChange={e => setTitle(e.target.value)} />
-        <div className="row"><button type="button" className="btn secondary" onClick={insertTable}>표 삽입</button><span className="muted small">표는 엑셀처럼 | 로 구분해서 표시됩니다.</span></div>
+        <div className="row"><button type="button" className="btn secondary" onClick={insertTable}>표 삽입</button><span className="muted small">Google Sheets의 셀 범위를 복사해 붙여넣으면 자동으로 표가 됩니다.</span></div>
         <textarea
           className="input"
           placeholder={`공지 내용을 입력하세요.\n\n표 예시:\n| 날짜 | 내용 | 담당 |\n|---|---|---|\n| 7/10 | 보건증 확인 | 관리자 |`}
           value={content}
           onChange={e => setContent(e.target.value)}
+          onPaste={pasteSheet}
           rows={10}
           style={{ minHeight: 220, resize: 'vertical', lineHeight: 1.55, fontFamily: 'inherit' }}
         />
         <div className="card" style={{ background: '#f9fafb' }}><b>미리보기</b><NoticeContent content={content || '내용을 입력하면 여기에 미리보기가 표시됩니다.'} /></div>
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <span className="muted small">줄바꿈과 표가 그대로 표시됩니다.</span>
+          <span className="muted small">시트의 행·열과 줄바꿈이 표로 표시됩니다.</span>
           <button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : (editing ? '공지 수정 저장' : '공지 저장')}</button>
         </div>
       </div>}
