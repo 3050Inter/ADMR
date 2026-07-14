@@ -145,6 +145,8 @@ export default function Page() {
   const todayOff = leave.filter(r => dateOnly(val(r, ['날짜', '일자', '휴무일', '입력일'])) === today);
   const todayOffNames = new Set(todayOff.map(r => nameOf(r) || val(r, ['이름', '직원명'])));
   const todayWork = active.filter(r => !todayOffNames.has(nameOf(r)));
+  const todayWorkGroups = workGroups(todayWork);
+  const todayWorkSummary = (['관리', '홀', '주방'] as const).map(group => `${group} ${todayWorkGroups[group].length}`).join(' · ');
   const healthWarnings = health.filter(r => {
     const exp = val(r, ['만료일','보건증만료일','보건증 만료일','날짜']);
     const days = dday(exp);
@@ -152,7 +154,7 @@ export default function Page() {
   });
   return <main>
     <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.1.5 Month-End Incentive</h1><div className="muted">v1.1.5 / 월 말일까지 자동 인센티브 계산 · 표 붙여넣기 지원</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
-    <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
+    <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} sub={todayWorkSummary} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
     {!loading && !err && <>
@@ -190,6 +192,10 @@ export default function Page() {
       .rich-notice-editor th, .notice-content th { background: #f3f4f6; font-weight: 800; }
       .notice-content { overflow-x: auto; }
       .notice-content p { margin: 8px 0; }
+      .work-groups { display: grid; gap: 8px; }
+      .work-groups p { display: grid; grid-template-columns: 86px 1fr; gap: 8px; margin: 0; align-items: start; }
+      .work-groups b { white-space: nowrap; }
+      .stat-sub { white-space: nowrap; font-size: 11px; }
 
       .mobile-bottom-nav { display: none; }
       .calendar-cell.selected-cell { outline: 3px solid #111827; outline-offset: -3px; background: #fef3c7 !important; }
@@ -236,6 +242,8 @@ export default function Page() {
         .dashboard-main-cards { grid-template-columns: repeat(3, 1fr) !important; }
         .dashboard-main-cards .card { padding: 12px 8px !important; text-align: center; }
         .dashboard-main-cards .num { font-size: 24px !important; }
+        .dashboard-main-cards .stat-sub { font-size: 10px; letter-spacing: -0.3px; }
+        .work-groups p { grid-template-columns: 76px 1fr; }
         .card { border-radius: 16px !important; padding: 14px !important; }
         .row, .leave-controls { gap: 8px !important; }
         .row { flex-wrap: wrap; }
@@ -262,9 +270,26 @@ export default function Page() {
     `}</style>
   </main>;
 }
-function Stat({ t, v }: { t: string, v: any }) { return <div className="card"><div className="muted">{t}</div><div className="num">{v}</div></div>; }
+function Stat({ t, v, sub }: { t: string, v: any, sub?: string }) { return <div className="card"><div className="muted">{t}</div><div className="num">{v}</div>{sub && <div className="muted small stat-sub">{sub}</div>}</div>; }
+function workGroups(rows: Row[]) {
+  const groups: Record<'관리' | '홀' | '주방' | '기타', string[]> = { 관리: [], 홀: [], 주방: [], 기타: [] };
+  (rows || []).forEach((r: Row) => {
+    const name = nameOf(r);
+    if (!name) return;
+    const dept = String(val(r, ['부서', '근무부서', '파트', '직무'])).replace(/\s/g, '');
+    const group = /관리|사무|admin/i.test(dept) ? '관리' : /주방|조리|kitchen/i.test(dept) ? '주방' : /홀|매장|서빙|service/i.test(dept) ? '홀' : '기타';
+    groups[group].push(name);
+  });
+  return groups;
+}
+
+function WorkGroupList({ groups }: { groups: ReturnType<typeof workGroups> }) {
+  const order: Array<keyof typeof groups> = ['관리', '홀', '주방', '기타'];
+  return <div className="work-groups">{order.map(group => groups[group].length ? <p key={group}><b>{group} ({groups[group].length}명)</b><span>{groups[group].join(', ')}</span></p> : null)}</div>;
+}
+
 function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices }: any) {
-  const workNames = (todayWork || []).map((r: Row) => nameOf(r)).filter(Boolean);
+  const groups = workGroups(todayWork || []);
   const offNames = (todayOff || []).map((r: Row) => nameOf(r) || val(r, ['이름', '직원명'])).filter(Boolean);
   return <>
     <div className="notice-hero card">
@@ -273,7 +298,7 @@ function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices 
       {!notices?.length && <p className="muted">등록된 공지가 없습니다.</p>}
     </div>
     <div className="grid2">
-      <div className="card"><h2>👥 오늘 근무자</h2>{workNames.length ? <p>{workNames.join(', ')}</p> : <p className="muted">표시할 근무자가 없습니다.</p>}<p className="muted small">재직 직원 {active.length}명 기준</p></div>
+      <div className="card"><h2>👥 오늘 근무자</h2>{todayWork?.length ? <WorkGroupList groups={groups} /> : <p className="muted">표시할 근무자가 없습니다.</p>}<p className="muted small">재직 직원 {active.length}명 기준</p></div>
       <div className="card"><h2>🏖 오늘 휴무자</h2>{offNames.length ? <p>{offNames.join(', ')}</p> : <p className="muted">오늘 휴무자가 없습니다.</p>}</div>
       <div className="card"><h2>🩺 보건증 경고</h2>{healthWarnings?.slice(0, 6).map((r: Row, i: number) => { const exp = val(r, ['만료일','보건증만료일','보건증 만료일','날짜']); const st = healthStatus(dday(exp)); return <p key={i}>• <b>{nameOf(r)}</b> <span className={`status ${st.cls}`}>{st.text}</span></p>; })}{!healthWarnings?.length && <p className="muted">만료 예정 없음</p>}</div>
       <div className="card"><h2>시스템 정보</h2><p className="muted small">API 버전: {data.version || '-'} / 시트: {data.spreadsheet || '-'}</p><p className="muted small">현재 상태: {data.version || '-'} / 수정 권한은 관리자 모드에서만 가능합니다.</p></div>
