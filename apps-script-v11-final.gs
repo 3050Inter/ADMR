@@ -85,6 +85,7 @@ function cacheRemove(keys) {
 function clearDashboardCache(month) {
   cacheRemove([
     cacheKey(['dashboard', month, todayKey()]),
+    cacheKey(['dashboard-notices-v1', month, todayKey()]),
     cacheKey(['employees']),
     cacheKey(['leave', month]),
     cacheKey(['incentives', month]),
@@ -399,7 +400,7 @@ function statsFromEmployees(emp) {
 }
 
 function dashboardPayload(month) {
-  const key = cacheKey(['dashboard', month, todayKey()]);
+  const key = cacheKey(['dashboard-notices-v1', month, todayKey()]);
   const cached = cacheGet(key);
   if (cached) return cached;
 
@@ -411,7 +412,8 @@ function dashboardPayload(month) {
   out.leave = leave;
   out.holidays = leave;
   out.health = [];
-  out.notices = [];
+  // 대시보드에는 최신 공지 5건만 함께 내려보내 첫 화면에서도 최신 글이 보이게 합니다.
+  out.notices = noticeRows().slice(0, 5);
   out.stats = statsFromEmployees(emp);
   out.dashboard = {};
   out.workIncentiveSync = { ok: true, skipped: true, reason: 'V11.2 첫 화면 경량화 + 캐시' };
@@ -765,6 +767,7 @@ function saveNotice(body) {
   const s = ensureSheet(DB.sheets.notices, ['작성일', '제목', '내용', '작성자', '입력시간']);
   appendByHeader(s, { '작성일': todayKey(), '제목': title, '내용': content, '작성자': author, '입력시간': nowKst() });
   logHomepage('saveNotice', title);
+  clearDashboardCache(thisMonth());
   return { ok: true, message: '공지 저장 완료' };
 }
 
@@ -789,6 +792,7 @@ function updateNotice(body) {
   set('작성자', author);
   set('수정시간', nowKst());
   logHomepage('updateNotice', title);
+  clearDashboardCache(thisMonth());
   return { ok: true, message: '공지 수정 완료' };
 }
 function deleteNotice(body) {
@@ -801,6 +805,7 @@ function deleteNotice(body) {
   if (row > s.getLastRow()) return { ok: false, error: '삭제할 행이 시트 범위를 벗어났습니다.' };
   s.deleteRow(row);
   logHomepage('deleteNotice', 'row ' + row);
+  clearDashboardCache(thisMonth());
   return { ok: true, message: '공지 삭제 완료' };
 }
 function backupMaster(body) {
