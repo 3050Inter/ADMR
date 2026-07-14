@@ -282,6 +282,13 @@ function workGroups(rows: Row[]) {
   });
   return groups;
 }
+function noticeSortValue(r: Row) {
+  const row = Number(r?._row);
+  if (Number.isFinite(row) && row > 0) return row * 1e15;
+  const timestamp = val(r, ['입력시간', '작성일', '등록일', '날짜']);
+  const time = Date.parse(timestamp.replace(/\./g, '-'));
+  return Number.isFinite(time) ? time : 0;
+}
 
 function WorkGroupList({ groups }: { groups: ReturnType<typeof workGroups> }) {
   const order: Array<keyof typeof groups> = ['관리', '홀', '주방', '기타'];
@@ -291,10 +298,11 @@ function WorkGroupList({ groups }: { groups: ReturnType<typeof workGroups> }) {
 function Dashboard({ data, active, todayWork, todayOff, healthWarnings, notices }: any) {
   const groups = workGroups(todayWork || []);
   const offNames = (todayOff || []).map((r: Row) => nameOf(r) || val(r, ['이름', '직원명'])).filter(Boolean);
+  const latestNotices = [...(notices || [])].sort((a: Row, b: Row) => noticeSortValue(b) - noticeSortValue(a));
   return <>
     <div className="notice-hero card">
       <div className="top"><h2>📢 공지사항</h2><span className="muted small">최근 5건</span></div>
-      {notices?.slice(0, 5).map((n: Row, i: number) => <div key={i} className="notice-mini"><b>{val(n, ['제목']) || '제목 없음'}</b><NoticeContent content={val(n, ['내용'])} compact /></div>)}
+      {latestNotices.slice(0, 5).map((n: Row, i: number) => <div key={n._row || i} className="notice-mini"><b>{i === 0 ? '📌 최신 · ' : ''}{val(n, ['제목']) || '제목 없음'}</b><NoticeContent content={val(n, ['내용'])} compact /></div>)}
       {!notices?.length && <p className="muted">등록된 공지가 없습니다.</p>}
     </div>
     <div className="grid2">
