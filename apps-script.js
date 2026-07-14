@@ -460,7 +460,8 @@ function allPayload(month) {
 
 function numberOf(v) { const n = Number(clean(v)); return isNaN(n) ? 0 : n; }
 function incentiveRows(month) {
-  const emp = employees();
+  // 직원 명부와 계산 결과는 캐시를 사용해 화면 전환 때마다 시트를 다시 읽지 않는다.
+  const emp = employeesCached();
   const allLogs = tableRows(DB.sheets.incentiveLog, ['날짜', '이름', '구분', '시간']);
   const allManual = tableRows(DB.sheets.manualAdjust, ['날짜', '이름', '구분', '시간']);
   const logs = monthFilter(allLogs, month);
@@ -485,7 +486,18 @@ function incentiveRows(month) {
   });
   return computed.concat(logs).concat(manual);
 }
-function incentivesPayload(month) { const out = baseInfo(); out.employees = employees(); out.incentives = incentiveRows(month); return out; }
+function incentivesPayload(month) {
+  const key = cacheKey(['incentives', month]);
+  const cached = cacheGet(key);
+  if (cached) return cached;
+  const out = baseInfo();
+  out.employees = employeesCached();
+  out.incentives = incentiveRows(month);
+  // 인센티브는 조회가 잦고 원본 시트 읽기가 무거워 2분간 결과를 재사용한다.
+  // 휴무·수기조정·자동계산 저장 시 clearDashboardCache가 즉시 이 캐시를 비운다.
+  cachePut(key, out, 120);
+  return out;
+}
 
 function ensureSheet(name, headers) {
   let s = sheet(name);
