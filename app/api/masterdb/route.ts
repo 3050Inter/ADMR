@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { isAdminRequest } from '../../lib/admin-auth';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 function gasUrl(req: Request) {
-  const base = process.env.MASTERDB_API_URL || process.env.NEXT_PUBLIC_API_URL;
-  if (!base) throw new Error('MASTERDB_API_URL 없음');
+  const base = process.env.NEXT_PUBLIC_API_URL;
+  if (!base) throw new Error('NEXT_PUBLIC_API_URL 없음');
   const inUrl = new URL(req.url);
   const url = new URL(base);
   inUrl.searchParams.forEach((v, k) => url.searchParams.set(k, v));
@@ -18,16 +17,17 @@ async function parseGasResponse(res: Response, apiUrl: string) {
   try {
     return NextResponse.json(JSON.parse(text));
   } catch {
-    console.error('Apps Script returned a non-JSON response', { status: res.status, apiUrl });
     return NextResponse.json({
       ok: false,
-      error: '데이터 서버 응답을 처리할 수 없습니다.',
+      error: 'Apps Script JSON 아님',
       status: res.status,
+      apiUrl,
+      raw: text.slice(0, 1200),
     }, { status: 200 });
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const url = gasUrl(req);
     const res = await fetch(url, { cache: 'no-store', redirect: 'follow' });
@@ -37,13 +37,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    if (!isAdminRequest(req)) {
-      return NextResponse.json({ ok: false, error: '관리자 로그인이 필요합니다.' }, { status: 401 });
-    }
-    const base = process.env.MASTERDB_API_URL || process.env.NEXT_PUBLIC_API_URL;
-    if (!base) throw new Error('MASTERDB_API_URL 없음');
+    const base = process.env.NEXT_PUBLIC_API_URL;
+    if (!base) throw new Error('NEXT_PUBLIC_API_URL 없음');
     const body = await req.json();
     const res = await fetch(base, {
       method: 'POST',

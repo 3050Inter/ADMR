@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Row = Record<string, any>;
-const viewTabs = ['대시보드', '직원관리', '휴무관리', '근무인원', '보건증', '인센티브', '공지사항', '운영통계', '시스템'];
+const tabs = ['대시보드', '직원관리', '휴무관리', '근무인원', '보건증', '인센티브', '공지사항', '운영통계', '시스템', '연결확인'];
+const ADMIN_PASSWORD = '8654';
+const ADMIN_STORAGE_KEY = 'andamiro_admin_until';
 
 function val(r: Row, keys: string[]) {
   for (const k of keys) {
@@ -39,9 +41,7 @@ async function apiGet(action = 'all', params: Row = {}) {
   url.searchParams.set('action', action);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   const res = await fetch(url.toString(), { cache: 'no-store' });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error || '요청에 실패했습니다.');
-  return json;
+  return res.json();
 }
 async function apiPost(body: Row) {
   const res = await fetch('/api/masterdb', {
@@ -49,9 +49,7 @@ async function apiPost(body: Row) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error || '요청에 실패했습니다.');
-  return json;
+  return res.json();
 }
 
 export default function Page() {
@@ -62,34 +60,23 @@ export default function Page() {
   const [month, setMonth] = useState(localMonthKey());
   const [loaded, setLoaded] = useState<Record<string, boolean>>({});
   const [isAdmin, setIsAdmin] = useState(false);
-  const tabs = isAdmin ? [...viewTabs, '연결확인'] : viewTabs;
   useEffect(() => {
-    fetch('/api/admin', { cache: 'no-store' })
-      .then(r => r.json())
-      .then(j => setIsAdmin(Boolean(j.isAdmin)))
-      .catch(() => setIsAdmin(false));
+    try {
+      const until = Number(localStorage.getItem(ADMIN_STORAGE_KEY) || '0');
+      setIsAdmin(until > Date.now());
+    } catch (e) {}
   }, []);
-  async function unlockAdmin() {
+  function unlockAdmin() {
     const pw = window.prompt('관리자 비밀번호를 입력하세요.');
-    if (!pw) return;
-    const res = await fetch('/api/admin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
-    });
-    const j = await res.json();
-    if (!res.ok) return alert(j.error || '로그인에 실패했습니다.');
+    if (pw !== ADMIN_PASSWORD) return alert('비밀번호가 맞지 않습니다.');
+    const until = Date.now() + 1000 * 60 * 60 * 24 * 30;
+    localStorage.setItem(ADMIN_STORAGE_KEY, String(until));
     setIsAdmin(true);
-    setLoaded({});
-    alert('관리자 로그인이 완료되었습니다.');
+    alert('관리자 모드가 활성화되었습니다.');
   }
-  async function lockAdmin() {
-    await fetch('/api/admin', { method: 'DELETE' });
+  function lockAdmin() {
+    localStorage.removeItem(ADMIN_STORAGE_KEY);
     setIsAdmin(false);
-    setTab('대시보드');
-    setData({});
-    setLoaded({});
-    loadDashboard();
   }
   async function loadAction(action = 'dashboard') {
     setLoading(true); setErr('');
@@ -164,7 +151,7 @@ export default function Page() {
     return days === null || days <= 30;
   });
   return <main>
-    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 직원관리</h1><div className="muted">근무·휴무·보건증·인센티브 통합 관리</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 로그아웃' : '🔒 관리자 로그인'}</button></div></div>
+    <div className="top"><div><h1 style={{ margin: '0 0 6px' }}>안다미로 스시 v1.1.5 Month-End Incentive</h1><div className="muted">v1.1.5 / 월 말일까지 자동 인센티브 계산 · 표 붙여넣기 지원</div></div><div className="row"><input className="input" type="month" value={month} onChange={e => setMonth(e.target.value)} /><button className="btn" onClick={() => loadAction(actionForTab(tab))}>새로고침</button><button className={isAdmin ? 'btn secondary' : 'btn'} onClick={isAdmin ? lockAdmin : unlockAdmin}>{isAdmin ? '🔓 관리자 모드' : '🔒 조회 모드'}</button></div></div>
     <div className="cards dashboard-main-cards"><Stat t="👥 오늘 근무" v={todayWork.length} /><Stat t="🏖 오늘 휴무" v={todayOff.length} /><Stat t="🩺 보건증 만료" v={healthWarnings.length} /></div>
     <div className="nav">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => goTab(t)}>{t}</button>)}</div>
     {loading && <div className="card">불러오는 중...</div>}{err && <div className="card err">오류: {err}</div>}
@@ -178,7 +165,7 @@ export default function Page() {
       {tab === '공지사항' && <Notice rows={notices} onSaved={() => loadAction('notices')} isAdmin={isAdmin} />}
       {tab === '운영통계' && <Operations data={data} employees={employees} leave={leave} incentives={incentives} health={health} month={month} />}
       {tab === '시스템' && <SystemTools data={data} month={month} onSaved={loadFull} isAdmin={isAdmin} />}
-      {isAdmin && tab === '연결확인' && <Debug data={data} />}
+      {tab === '연결확인' && <Debug data={data} />}
     </>}
     <div className="mobile-bottom-nav">
       {[
@@ -194,6 +181,16 @@ export default function Page() {
       ))}
     </div>
     <style jsx global>{`
+
+      .rich-notice-editor { min-height: 220px; padding: 12px; border: 1px solid #d1d5db; border-radius: 12px; background: white; line-height: 1.55; outline: none; overflow-x: auto; }
+      .rich-notice-editor:empty:before { content: attr(data-placeholder); color: #9ca3af; }
+      .notice-editor-toolbar { margin-bottom: 8px; }
+      .rich-notice-editor table, .notice-content table { border-collapse: collapse; width: max-content; max-width: 100%; margin: 8px 0; background: white; }
+      .rich-notice-editor th, .rich-notice-editor td, .notice-content th, .notice-content td { border: 1px solid #9ca3af; padding: 7px 9px; min-width: 72px; vertical-align: top; }
+      .rich-notice-editor th, .notice-content th { background: #f3f4f6; font-weight: 800; }
+      .notice-content { overflow-x: auto; }
+      .notice-content p { margin: 8px 0; }
+
       .mobile-bottom-nav { display: none; }
       .calendar-cell.selected-cell { outline: 3px solid #111827; outline-offset: -3px; background: #fef3c7 !important; }
       @media (max-width: 768px) {
@@ -826,30 +823,104 @@ function Health({ rows, employees, onSaved, isAdmin }: { rows: Row[], employees:
   </>;
 }
 function isMarkdownTableBlock(lines: string[]) {
-  if (lines.length < 2) return false;
-  const first = lines[0].trim();
-  const second = lines[1].trim();
-  return first.includes('|') && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(second);
+  return lines.length >= 2 && lines[0].includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[1] || '');
 }
 function parseTableLine(line: string) {
   return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(v => v.trim());
 }
-function sheetPasteToMarkdown(text: string) {
-  const rows = text.replace(/\r\n?/g, '\n').split('\n')
-    .map(line => line.split('\t').map(cell => cell.trim()))
-    .filter(row => row.some(Boolean));
-  const width = Math.max(0, ...rows.map(row => row.length));
-  if (width < 2) return text;
-  const escapeCell = (cell = '') => cell.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
-  const normalized = rows.map(row => Array.from({ length: width }, (_, i) => escapeCell(row[i] || '')));
-  return [
-    `| ${normalized[0].join(' | ')} |`,
-    `| ${Array(width).fill('---').join(' | ')} |`,
-    ...normalized.slice(1).map(row => `| ${row.join(' | ')} |`),
-  ].join('\n');
+function escapeHtmlText(text: string) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function textToNoticeHtml(text: string) {
+  const raw = String(text || '').replace(/\r\n/g, '\n');
+  const lines = raw.split('\n');
+  const hasTabs = lines.some(line => line.includes('\t'));
+  if (hasTabs) {
+    const rows = lines.filter(line => line.trim() !== '').map(line => line.split('\t'));
+    if (rows.length) {
+      const maxCols = Math.max(...rows.map(r => r.length));
+      return `<table><tbody>${rows.map((row, rIdx) => `<tr>${Array.from({ length: maxCols }).map((_, cIdx) => {
+        const tag = rIdx === 0 ? 'th' : 'td';
+        return `<${tag}>${escapeHtmlText(row[cIdx] || '')}</${tag}>`;
+      }).join('')}</tr>`).join('')}</tbody></table>`;
+    }
+  }
+  return `<p>${lines.map(escapeHtmlText).join('<br>')}</p>`;
+}
+function sanitizeNoticeHtml(html: string) {
+  return String(html || '')
+    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|option|link|meta)[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|option|link|meta)[^>]*>/gi, '')
+    .replace(/\s+on\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\s+on\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/\s+on\w+\s*=\s*[^\s>]+/gi, '')
+    .replace(/javascript:/gi, '')
+    .replace(/data:text\/html/gi, '')
+    .replace(/<\/?\s*(html|body|head)[^>]*>/gi, '')
+    .trim();
+}
+function hasRichNoticeHtml(content: string) {
+  return /<\s*(table|tbody|thead|tr|td|th|p|div|br|span|b|strong|em|u|ul|ol|li)/i.test(String(content || ''));
+}
+function RichNoticeEditor({ content, onChange }: { content: string, onChange: (value: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const next = hasRichNoticeHtml(content) ? sanitizeNoticeHtml(content) : textToNoticeHtml(content);
+    if (ref.current.innerHTML !== next) ref.current.innerHTML = next;
+  }, [content]);
+  function sync() {
+    onChange(sanitizeNoticeHtml(ref.current?.innerHTML || ''));
+  }
+  function insertHtml(html: string) {
+    const safe = sanitizeNoticeHtml(html);
+    if (!safe) return;
+    document.execCommand('insertHTML', false, safe);
+    sync();
+  }
+  function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    if (html && /<\s*table/i.test(html)) return insertHtml(html);
+    if (html && html.trim()) return insertHtml(html);
+    insertHtml(textToNoticeHtml(text));
+  }
+  function clearFormat() {
+    onChange('');
+    if (ref.current) ref.current.innerHTML = '';
+  }
+  return <div>
+    <div className="notice-editor-toolbar row">
+      <button type="button" className="btn secondary" onClick={() => document.execCommand('bold')}>굵게</button>
+      <button type="button" className="btn secondary" onClick={() => insertHtml('<table><tbody><tr><th>날짜</th><th>내용</th><th>담당</th></tr><tr><td></td><td></td><td></td></tr></tbody></table>')}>빈 표</button>
+      <button type="button" className="btn secondary" onClick={clearFormat}>내용 지우기</button>
+      <span className="muted small">구글시트 표를 복사해서 아래 칸에 바로 붙여넣으세요.</span>
+    </div>
+    <div
+      ref={ref}
+      className="rich-notice-editor"
+      contentEditable
+      suppressContentEditableWarning
+      onInput={sync}
+      onBlur={sync}
+      onPaste={onPaste}
+      data-placeholder="공지 내용을 입력하거나 구글시트 표를 Ctrl+V로 붙여넣으세요."
+    />
+  </div>;
 }
 function NoticeContent({ content, compact = false }: { content: string, compact?: boolean }) {
-  const lines = String(content || '').split('\n');
+  const raw = String(content || '').trim();
+  if (!raw) return null;
+  if (hasRichNoticeHtml(raw)) {
+    return <div className={compact ? 'notice-content compact' : 'notice-content'} dangerouslySetInnerHTML={{ __html: sanitizeNoticeHtml(raw) }} />;
+  }
+  const lines = raw.split('\n');
   const blocks: any[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -886,20 +957,6 @@ function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, 
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
-  function insertTable() {
-    const table = `\n| 날짜 | 내용 | 담당 |\n|---|---|---|\n| 7/10 | 보건증 확인 | 관리자 |\n| 7/15 | 휴무표 마감 | 전체 |\n`;
-    setContent(prev => (prev ? prev + '\n' : '') + table);
-  }
-  function pasteSheet(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const pasted = e.clipboardData.getData('text/plain');
-    if (!pasted.includes('\t')) return;
-    e.preventDefault();
-    const target = e.currentTarget;
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
-    const table = sheetPasteToMarkdown(pasted);
-    setContent(prev => `${prev.slice(0, start)}${table}${prev.slice(end)}`);
-  }
   function cancelEdit() {
     setEditing(null);
     setTitle('');
@@ -912,11 +969,12 @@ function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   async function save() {
-    if (!title.trim() || !content.trim()) return alert('제목과 내용을 입력하세요.');
+    const plain = content.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (!title.trim() || !plain) return alert('제목과 내용을 입력하세요.');
     setSaving(true);
     const body: Row = editing?._row
-      ? { action: 'updateNotice', row: editing._row, sheetName: editing._sheet || '공지사항', title, content, author: '관리자' }
-      : { action: 'saveNotice', title, content, author: '관리자' };
+      ? { action: 'updateNotice', row: editing._row, sheetName: editing._sheet || '공지사항', title, content: sanitizeNoticeHtml(content), author: '관리자' }
+      : { action: 'saveNotice', title, content: sanitizeNoticeHtml(content), author: '관리자' };
     const j = await apiPost(body);
     setSaving(false);
     if (j.ok === false) return alert(j.error || '저장 실패');
@@ -936,19 +994,10 @@ function Notice({ rows, onSaved, isAdmin }: { rows: Row[], onSaved: () => void, 
       {!isAdmin && <p className="muted">조회 전용입니다. 공지 작성/수정/삭제는 관리자 모드에서 가능합니다.</p>}
       {isAdmin && <div style={{ display: 'grid', gap: 10 }}>
         <input className="input" placeholder="제목" value={title} onChange={e => setTitle(e.target.value)} />
-        <div className="row"><button type="button" className="btn secondary" onClick={insertTable}>표 삽입</button><span className="muted small">Google Sheets의 셀 범위를 복사해 붙여넣으면 자동으로 표가 됩니다.</span></div>
-        <textarea
-          className="input"
-          placeholder={`공지 내용을 입력하세요.\n\n표 예시:\n| 날짜 | 내용 | 담당 |\n|---|---|---|\n| 7/10 | 보건증 확인 | 관리자 |`}
-          value={content}
-          onChange={e => setContent(e.target.value)}
-          onPaste={pasteSheet}
-          rows={10}
-          style={{ minHeight: 220, resize: 'vertical', lineHeight: 1.55, fontFamily: 'inherit' }}
-        />
-        <div className="card" style={{ background: '#f9fafb' }}><b>미리보기</b><NoticeContent content={content || '내용을 입력하면 여기에 미리보기가 표시됩니다.'} /></div>
+        <RichNoticeEditor content={content} onChange={setContent} />
+        <div className="card" style={{ background: '#f9fafb' }}><b>미리보기</b><NoticeContent content={content || '<p>내용을 입력하면 여기에 미리보기가 표시됩니다.</p>'} /></div>
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <span className="muted small">시트의 행·열과 줄바꿈이 표로 표시됩니다.</span>
+          <span className="muted small">구글시트/엑셀 표를 복사해 붙여넣으면 표 형태로 저장됩니다.</span>
           <button className="btn" onClick={save} disabled={saving}>{saving ? '저장중' : (editing ? '공지 수정 저장' : '공지 저장')}</button>
         </div>
       </div>}
@@ -1034,7 +1083,7 @@ function SystemTools({ data, month, onSaved, isAdmin }: { data: Row, month: stri
     {!isAdmin && <div className="card" style={{gridColumn:'1/-1'}}><h2>조회 전용</h2><p className="muted">월마감과 백업은 관리자 모드에서만 가능합니다.</p></div>}
     {isAdmin && <div className="card"><h2>월 마감</h2><p className="muted">현재 월({month})의 휴무·인센티브·로그 상태를 마감 기록으로 남깁니다. 인센티브 누적은 유지됩니다.</p><button className="btn" disabled={!!busy} onClick={() => run('closeMonth', `${month} 월마감을 진행할까요?`)}>{busy === 'closeMonth' ? '처리중...' : `${month} 월마감`}</button></div>}
     {isAdmin && <div className="card"><h2>MASTER_DB 백업</h2><p className="muted">현재 스프레드시트 사본을 생성합니다. 배포 전이나 월말에 사용하세요.</p><button className="btn" disabled={!!busy} onClick={() => run('backupMaster', 'MASTER_DB 백업을 생성할까요?')}>{busy === 'backupMaster' ? '처리중...' : '백업 생성'}</button></div>}
-    <div className="card"><h2>시스템 정보</h2><p>버전: {data.version || '-'}</p><p>스프레드시트: {data.spreadsheet || '-'}</p><p>이번달 자동 인센티브 추가: {data.workIncentiveSync?.added ?? '-'}</p>{isAdmin && <button className="btn secondary" disabled={!!busy} onClick={() => run('repairWorkIncentives', `${month} 자동 인센티브를 입사일/오늘 기준으로 재정리할까요?`)}>자동 인센티브 재계산</button>}</div>
+    <div className="card"><h2>시스템 정보</h2><p>버전: {data.version || '-'}</p><p>스프레드시트: {data.spreadsheet || '-'}</p><p>이번달 자동 인센티브 추가: {data.workIncentiveSync?.added ?? '-'}</p>{isAdmin && <button className="btn secondary" disabled={!!busy} onClick={() => run('repairWorkIncentives', `${month} 자동 인센티브를 입사일/월말 기준으로 재정리할까요? 기존 자동 로그는 정리하고 다시 계산합니다.`)}>자동 인센티브 재계산</button>}</div>
     <Table title="시트 연결상태" rows={data.sheets ? Object.entries(data.sheets).map(([key, connected]) => ({ key, connected: connected ? 'OK' : '없음' })) : []} />
   </div>;
 }

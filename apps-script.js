@@ -2,7 +2,7 @@
 // 재조회 최소화 + 첫 화면 경량화 + 저장 후 빠른 응답
 
 const MASTER_DB_ID = '1O-v-26uvnmj9B2n1pB98DMl1IV9mB3s-y9w0elcIMqU';
-const API_VERSION = 'v1.1.3-notice-editor-20260709';
+const API_VERSION = 'v1.1.5-month-end-incentive-20260714';
 
 const DB = {
   sheets: {
@@ -880,7 +880,6 @@ function cleanupInvalidAutoWorkIncentives_(month, holidays, offMap, startMap) {
   const nameIdx = idx(['이름','직원명','성명']);
   const memoIdx = idx(['메모','비고','내용']);
   const typeIdx = idx(['구분','사유']);
-  const today = todayKey();
   const existing = {};
   const seen = {};
   const removeRows = [];
@@ -903,7 +902,7 @@ function cleanupInvalidAutoWorkIncentives_(month, holidays, offMap, startMap) {
     }
     if (!date || !name) { removeRows.push(r + 1); continue; }
     const start = startMap[name] || ((clean(month) || thisMonth()) + '-01');
-    const valid = date.slice(0,7) === month && date <= today && date >= start && isWeekendHolidayWorkDate_(date, holidays) && !offMap[date + '|' + name];
+    const valid = date.slice(0,7) === month && date >= start && isWeekendHolidayWorkDate_(date, holidays) && !offMap[date + '|' + name];
     const k = date + '|' + name;
     if (!valid || seen[k]) {
       removeRows.push(r + 1);
@@ -929,10 +928,8 @@ function syncWorkIncentives(month) {
     const logSheet = ensureSheet(DB.sheets.incentiveLog, ['날짜', '이름', '구분', '시간', '메모', '입력자', '입력시간']);
     let added = 0;
     const preview = [];
-    const today = todayKey();
     dateRangeOfMonth(month).forEach(function(dt) {
       const date = Utilities.formatDate(dt, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      if (date > today) return; // 미래 날짜는 아직 근무 확정 전이므로 적립하지 않는다.
       if (!isWeekendHolidayWorkDate_(date, holidays)) return;
       const reason = workReason_(date, holidays);
       active.forEach(function(name) {
@@ -948,7 +945,7 @@ function syncWorkIncentives(month) {
       });
     });
     cacheRemove([cacheKey(['incentives', month]), cacheKey(['all', month]), cacheKey(['dashboard', month, todayKey()])]);
-    return { ok: true, month: month, added: added, removed: cleanup.removed || 0, previewCount: preview.length, preview: preview.slice(0, 200), rule: '입사일 이후 + 오늘까지의 토요일/일요일/공휴일 근무 +1시간' };
+    return { ok: true, month: month, added: added, removed: cleanup.removed || 0, previewCount: preview.length, preview: preview.slice(0, 200), rule: '입사일 이후 + 선택월 말일까지의 토요일/일요일/공휴일 근무 +1시간' };
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }

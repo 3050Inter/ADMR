@@ -1,39 +1,27 @@
-# 안다미로 스시 직원관리
+# 안다미로 직원관리 V11 Final
 
-Google Sheets, Google Apps Script, Next.js를 사용하는 내부 직원관리 홈페이지입니다.
+Google Sheets MASTER_DB + Google Apps Script + Next.js + Vercel 기반 직원관리 홈페이지입니다.
 
-## 권한 정책
+## V11 Final 반영 내용
 
-- 로그인 없이 대시보드, 직원, 휴무, 근무인원, 보건증, 인센티브, 공지사항, 운영통계, 시스템 현황을 조회할 수 있습니다.
-- 등록, 수정, 삭제, 월 마감, 백업 등 데이터가 변경되는 작업은 관리자 로그인 후에만 가능합니다.
-- 관리자 비밀번호는 브라우저 코드에 포함되지 않으며 서버 환경변수로 관리합니다.
-- `연결확인`의 원시 API 응답은 관리자에게만 표시됩니다.
+- 화면별 API 호출 분리: dashboard / employees / leave / health / incentives / notices / staffing / all
+- 첫 화면 전체 `all` 호출 제거
+- 빠른 실행 버튼 정상 연결
+- 저장 후 전체 새로고침 방지: 해당 탭 데이터만 갱신
+- 인센티브 수기조정 반영 개선
+- Apps Script `openById()` 반복 호출 최소화
+- 기존 V10 MASTER_DB 시트 구조 유지
 
-## 필수 환경변수
+## 배포 순서
 
-Vercel 프로젝트 설정에 다음 값을 등록합니다.
+1. 이 ZIP 압축 해제
+2. GitHub ADMR 저장소에 기존 파일 전체 삭제 후 이 파일들 전체 업로드
+3. Commit changes
+4. Vercel 자동 배포 확인
+5. `apps-script-v11-final.gs` 내용을 Google Apps Script `Code.gs`에 전체 붙여넣기
+6. 저장 → 배포 관리 → 새 버전 배포
+7. 기존 Vercel 환경변수 `NEXT_PUBLIC_API_URL`은 그대로 사용
 
-```text
-MASTERDB_API_URL=https://script.google.com/macros/s/배포_ID/exec
-ADMIN_PASSWORD=충분히_긴_관리자_비밀번호
-AUTH_SECRET=32자_이상의_무작위_문자열
-```
+## 중요
 
-`AUTH_SECRET`은 비밀번호와 다른 무작위 값을 사용해야 합니다. 환경변수를 변경한 뒤에는 다시 배포해야 합니다.
-
-기존 `NEXT_PUBLIC_API_URL`도 전환 기간에는 동작하지만, 공개 접두사가 없는 `MASTERDB_API_URL`로 교체하는 것을 권장합니다.
-
-## 로컬 실행
-
-1. `.env.example`을 참고해 `.env.local`을 만듭니다.
-2. `npm install`을 실행합니다.
-3. `npm run dev`를 실행합니다.
-
-## 배포
-
-1. 변경사항을 GitHub에 올립니다.
-2. Vercel 환경변수가 설정됐는지 확인합니다.
-3. Vercel에서 새 배포를 실행합니다.
-4. 조회 화면과 관리자 로그인 후 저장·수정·삭제를 각각 확인합니다.
-
-Google Apps Script를 변경했다면 `apps-script-v11-final.gs`의 내용을 Apps Script 프로젝트에 반영하고 새 버전으로 배포합니다.
+`.git` 폴더를 직접 건드리지 않아도 됩니다. GitHub 웹 업로드 방식으로 진행하면 충돌을 피할 수 있습니다.
