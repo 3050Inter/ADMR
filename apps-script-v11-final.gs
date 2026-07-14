@@ -4,6 +4,15 @@
 const MASTER_DB_ID = '1O-v-26uvnmj9B2n1pB98DMl1IV9mB3s-y9w0elcIMqU';
 const API_VERSION = 'v1.1.5-month-end-incentive-20260714';
 
+// 7월 표의 "사용 후" 확정값. 8월 1일부터 새 기록만 증감한다.
+const INCENTIVE_BASE_DATE = '2026-08-01';
+const INCENTIVE_BASE_VALUES = {
+  '문승민': 8, '김태성': 6, '진선재': 0, '도영진': -4, '봉두환': -1,
+  '고병일': 5, '한금순': -2, '조선화': 0, '박경선': -9, '진일규': 0,
+  '최진성': 4, '양혜린': 0, '최원호': 7, '구향순': -1, '성세창': 3,
+  '박성훈': -6, '좌현주': -3, '김성원': -4, '최경욱': 5
+};
+
 const DB = {
   sheets: {
     dashboard: '00_Dashboard',
@@ -452,31 +461,27 @@ function allPayload(month) {
 function numberOf(v) { const n = Number(clean(v)); return isNaN(n) ? 0 : n; }
 function incentiveRows(month) {
   const emp = employees();
-  const summary = tableRows(DB.sheets.incentiveSummary, ['이름', '현재누적', '누적', '잔여']);
-  const logs = monthFilter(tableRows(DB.sheets.incentiveLog, ['날짜', '이름', '구분', '시간']), month);
-  const manual = monthFilter(tableRows(DB.sheets.manualAdjust, ['날짜', '이름', '구분', '시간']), month);
+  const allLogs = tableRows(DB.sheets.incentiveLog, ['날짜', '이름', '구분', '시간']);
+  const allManual = tableRows(DB.sheets.manualAdjust, ['날짜', '이름', '구분', '시간']);
+  const logs = monthFilter(allLogs, month);
+  const manual = monthFilter(allManual, month);
   const map = {};
 
   emp.forEach(function(e) {
     const n = nameOf(e);
     if (!n) return;
-    map[n] = numberOf(e['현재누적'] || e['누적'] || e['인센티브']);
+    map[n] = Object.prototype.hasOwnProperty.call(INCENTIVE_BASE_VALUES, n) ? INCENTIVE_BASE_VALUES[n] : 0;
   });
-  summary.forEach(function(r) {
-    const n = nameOf(r);
-    if (!n) return;
-    const v = numberOf(r['현재누적'] || r['누적'] || r['잔여'] || r['인센티브']);
-    if (v !== 0) map[n] = v;
-  });
-  // 수기조정이 기존 시트 현재누적에 반영되지 않는 문제를 해결하기 위해 V11 화면 계산값에 더한다.
-  manual.forEach(function(r) {
+  allLogs.concat(allManual).forEach(function(r) {
+    const date = dateKey(r['날짜'] || r['일자'] || r['입력시간']);
+    if (!date || date < INCENTIVE_BASE_DATE) return;
     const n = nameOf(r);
     if (!n) return;
     map[n] = (map[n] || 0) + numberOf(r['시간'] || r['인센티브변동']);
   });
 
   const computed = Object.keys(map).map(function(n) {
-    return { _sheet: 'V11_계산', 이름: n, 현재누적: map[n], 누적: map[n], 잔여: map[n] % 12, 사용가능: Math.floor(map[n] / 12), 구분: 'V11계산' };
+    return { _sheet: 'V11_계산', 이름: n, 현재누적: map[n], 누적: map[n], 잔여: map[n] % 12, 사용가능: Math.floor(map[n] / 12), 기준일: INCENTIVE_BASE_DATE, 기준값: INCENTIVE_BASE_VALUES[n] || 0, 구분: 'V11계산' };
   });
   return computed.concat(logs).concat(manual);
 }

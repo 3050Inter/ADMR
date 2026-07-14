@@ -755,7 +755,11 @@ function Incentive({ rows, employees, onSaved, isAdmin }: { rows: Row[], employe
 
   const summary = activeNames.map(n => ({ name: n, hours: summaryMap.get(n) || 0 }))
     .sort((a,b) => b.hours - a.hours);
-  const logs = [...optimisticLogs, ...rows.filter(r => val(r, ['날짜','일자']) || val(r, ['구분','사유']) || val(r, ['시간']))].slice(0, 120);
+  // V11_계산 행은 현재 잔액을 보여 주기 위한 계산 결과이므로, 실제 변경 이력 목록에는 표시하지 않는다.
+  const logs = [...optimisticLogs, ...rows.filter(r =>
+    r._sheet !== 'V11_계산' &&
+    (val(r, ['날짜','일자']) || val(r, ['구분','사유']) || val(r, ['시간']))
+  )].slice(0, 120);
 
   async function adjust() {
     if (!name) return alert('직원을 선택하세요.');
